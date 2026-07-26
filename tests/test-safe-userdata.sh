@@ -6,6 +6,14 @@ PROJECT_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 POLICY_UNDER_TEST=${HALIUM_POLICY_UNDER_TEST:-$PROJECT_ROOT/scripts/halium-userdata}
 . "$POLICY_UNDER_TEST"
 
+halium_blkid() { "$FAKE_BIN/blkid" "$@"; }
+halium_mount() { "$FAKE_BIN/mount" "$@"; }
+halium_umount() { "$FAKE_BIN/umount" "$@"; }
+halium_is_block() { "$FAKE_BIN/is-block" "$@"; }
+halium_has_payload() { "$FAKE_BIN/has-payload" "$@"; }
+halium_log() { "$FAKE_BIN/log" "$@"; }
+halium_policy_panic() { "$FAKE_BIN/panic" "$@"; }
+
 DEVICE=/dev/fake-userdata
 MOUNTPOINT=/tmpmnt
 failures=0

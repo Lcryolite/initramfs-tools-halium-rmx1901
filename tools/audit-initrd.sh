@@ -12,6 +12,12 @@ BASE_IMAGE=$(readlink -f "$BASE_IMAGE")
 DERIVED_IMAGE=$(readlink -f "$DERIVED_IMAGE")
 RECORDED_BEFORE=$(readlink -f "$RECORDED_BEFORE")
 RECORDED_AFTER=$(readlink -f "$RECORDED_AFTER")
+PINNED_BASE_SHA=0bbac4577f3567aec935c958216de5d30c7355452ca56248d6728f4f2634bdb6
+actual_base_sha=$(sha256sum "$BASE_IMAGE" | awk '{print $1}')
+if [ "$actual_base_sha" != "$PINNED_BASE_SHA" ]; then
+	printf 'base initrd SHA-256 mismatch: expected %s, got %s\n' "$PINNED_BASE_SHA" "$actual_base_sha" >&2
+	exit 1
+fi
 
 AUDIT_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/rmx1901-initrd-audit.XXXXXX")
 trap 'rm -rf "$AUDIT_ROOT"' EXIT HUP INT TERM

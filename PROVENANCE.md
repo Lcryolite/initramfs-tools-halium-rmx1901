@@ -25,12 +25,12 @@ The mutable release `target_commitish` is not used as a trust anchor. The fixed 
 
 ## Derived artifact
 
-- Path: `out/final/initrd.img-touch-arm64-rmx1901-safe`
-- Size: `3,942,325` bytes
-- SHA-256: `13756009b3e78eb82540c718a52fae3677d8adaceda5c4fca76478461f57a57b`
+- Path: `out/reviewed/initrd.img-touch-arm64-rmx1901-safe`
+- Size: `3,942,246` bytes
+- SHA-256: `ac74c1124cc5cab7b9b42c9a06ca8ff5e14fc2d6e0d7237deb42da8a6788ceca`
 - Fixed build epoch: `1673963166` (`2023-01-17T13:46:06Z`)
-- SPDX document: `out/final/initrd.spdx.json` and tracked copy `sbom/initrd.spdx.json`
-- Before/after/delta manifests: `out/final/initrd.{before,after,delta}.manifest`
+- SPDX document: `out/reviewed/initrd.spdx.json` and tracked copy `sbom/initrd.spdx.json`
+- Before/after/delta manifests: `out/reviewed/initrd.{before,after,delta}.manifest`
 
 The content/mode delta is exactly:
 
@@ -56,6 +56,8 @@ All directory mtimes are normalized to the fixed build epoch. This metadata norm
 - Test shell: `/bin/sh` -> `/usr/bin/bash`; dash was unavailable
 
 Two independent derivations from the fixed base produced the same SHA-256. Cross-toolchain byte identity still depends on the listed cpio/gzip implementations; a digest-pinned builder image remains desirable before publishing externally.
+
+The production builder hard-codes the base SHA and release epoch; inherited environment variables cannot replace either trust anchor. The independent auditor verifies the base SHA before extracting or comparing caller-provided manifests. gzip, cpio, find, sort, stat, and hashing stages are separately checked so an intermediate failure cannot be hidden by the final process in a shell pipeline.
 
 ## Safety boundaries
 

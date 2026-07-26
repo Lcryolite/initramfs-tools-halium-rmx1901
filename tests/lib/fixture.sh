@@ -14,13 +14,11 @@ fixture_start() {
 	export CALL_LOG
 	export BLKID_OUTPUT=ext4 IS_BLOCK=1 HAS_PAYLOAD=1
 	export FAIL_RO=0 FAIL_RW=0 FAIL_UMOUNT=0
-	export HALIUM_BLKID=$FAKE_BIN/blkid
-	export HALIUM_MOUNT=$FAKE_BIN/mount
-	export HALIUM_UMOUNT=$FAKE_BIN/umount
-	export HALIUM_IS_BLOCK=$FAKE_BIN/is-block
-	export HALIUM_HAS_PAYLOAD=$FAKE_BIN/has-payload
-	export HALIUM_LOG=$FAKE_BIN/log
-	export HALIUM_PANIC=$FAKE_BIN/panic
+	# Poison the old environment injection interface. Production code must use
+	# fixed wrapper functions, which this test shell overrides below.
+	export HALIUM_BLKID=/bin/false HALIUM_MOUNT=/bin/false HALIUM_UMOUNT=/bin/false
+	export HALIUM_IS_BLOCK=/bin/false HALIUM_HAS_PAYLOAD=/bin/false
+	export HALIUM_LOG=/bin/false HALIUM_PANIC=/bin/false
 }
 
 fixture_stop() {

@@ -53,3 +53,43 @@
 - Command: `/bin/sh tests/test-derive-initrd.sh`
 - Exit: `0`
 - Result: deterministic derivation, relative-path handling, allowlist delta, forbidden-tool deletion, packed-policy behavior, fixed epoch, SPDX output, and independent archive audit passed.
+
+## Independent review regressions
+
+### RED: immutable trust anchor
+
+- Command: `/bin/sh tests/test-trust-anchor.sh`
+- Exit: `1`
+- Expected failure: `derive rejection was not the fixed-hash gate`
+- Root cause: `EXPECTED_BASE_SHA` and `SOURCE_DATE_EPOCH` from the environment could replace production provenance constants, and the auditor did not independently verify the base hash.
+
+### RED: checked archive stages
+
+- Command: `/bin/sh tests/test-archive-errors.sh`
+- Exit: `1`
+- Expected failure: `checked pack_initrd function is missing`
+- Root cause: gzip/cpio pipelines reported only the final process status under POSIX sh.
+
+### RED: production command injection removed
+
+- Command: `/bin/sh tests/test-safe-userdata.sh`
+- Exit: `1`
+- Expected failure: poisoned `HALIUM_*` environment commands prevented every policy fixture from reaching its fake command log.
+- Root cause: test injection variables were also honored by the production initramfs path.
+
+### GREEN
+
+- `/bin/sh tests/test-archive-errors.sh`: corrupt gzip and unreadable cpio input fail closed.
+- `/bin/sh tests/test-trust-anchor.sh`: base SHA and release epoch remain fixed despite poisoned environment values.
+- `/bin/sh tests/test-safe-userdata.sh`: all ten policy fixtures pass through shell-only wrapper overrides; production no longer reads `HALIUM_*` command variables.
+
+### RED: manifest stage errors
+
+- Command: `/bin/sh tests/test-archive-errors.sh`
+- Exit: `1`
+- Expected failure: `manifest generation ignored an invalid root`
+- Root cause: `manifest_tree` used an unchecked `find | sort | while` pipeline and could hash the caller's current directory after `cd` failed.
+
+### GREEN: manifest stage errors
+
+- `/bin/sh tests/test-archive-errors.sh`: nonexistent roots and unreadable files now make manifest generation fail; find, sort, stat, sha256sum, and output stages are checked separately.

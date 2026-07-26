@@ -6,14 +6,14 @@ PROJECT_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 
 BASE_IMAGE=${1:?usage: derive-initrd.sh BASE_IMAGE OUTPUT_DIRECTORY}
 OUTPUT_DIRECTORY=${2:?usage: derive-initrd.sh BASE_IMAGE OUTPUT_DIRECTORY}
-EXPECTED_BASE_SHA=${EXPECTED_BASE_SHA:-0bbac4577f3567aec935c958216de5d30c7355452ca56248d6728f4f2634bdb6}
-SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH:-1673963166}
+PINNED_BASE_SHA=0bbac4577f3567aec935c958216de5d30c7355452ca56248d6728f4f2634bdb6
+FIXED_SOURCE_DATE_EPOCH=1673963166
 ARTIFACT_NAME=initrd.img-touch-arm64-rmx1901-safe
 BASE_IMAGE=$(readlink -f "$BASE_IMAGE")
 
 actual_base_sha=$(sha256sum "$BASE_IMAGE" | awk '{print $1}')
-if [ "$actual_base_sha" != "$EXPECTED_BASE_SHA" ]; then
-	printf 'base initrd SHA-256 mismatch: expected %s, got %s\n' "$EXPECTED_BASE_SHA" "$actual_base_sha" >&2
+if [ "$actual_base_sha" != "$PINNED_BASE_SHA" ]; then
+	printf 'base initrd SHA-256 mismatch: expected %s, got %s\n' "$PINNED_BASE_SHA" "$actual_base_sha" >&2
 	exit 1
 fi
 
@@ -41,8 +41,8 @@ rm -f \
 # File content and modes change only for allowlisted paths. Directory mtimes
 # are normalized because GNU cpio extraction updates them while creating
 # children, otherwise identical inputs produce different output bytes.
-find "$UNPACKED" -type d -exec touch -h -d "@$SOURCE_DATE_EPOCH" {} +
-touch -h -d "@$SOURCE_DATE_EPOCH" \
+find "$UNPACKED" -type d -exec touch -h -d "@$FIXED_SOURCE_DATE_EPOCH" {} +
+touch -h -d "@$FIXED_SOURCE_DATE_EPOCH" \
 	"$UNPACKED/scripts/halium" \
 	"$UNPACKED/scripts/halium-userdata"
 
@@ -63,17 +63,12 @@ if [ "$actual_delta" != "$expected_delta" ]; then
 	exit 1
 fi
 
-(
-	cd "$UNPACKED"
-	find . -print0 | LC_ALL=C sort -z | \
-		cpio --null -o -H newc --reproducible --owner=0:0 2>/dev/null | \
-		gzip -n -9 >"$OUTPUT_DIRECTORY/$ARTIFACT_NAME"
-)
+pack_initrd "$UNPACKED" "$OUTPUT_DIRECTORY/$ARTIFACT_NAME"
 
 artifact_sha=$(sha256sum "$OUTPUT_DIRECTORY/$ARTIFACT_NAME" | awk '{print $1}')
 artifact_size=$(stat -c %s "$OUTPUT_DIRECTORY/$ARTIFACT_NAME")
 printf '%s  %s\n' "$artifact_sha" "$ARTIFACT_NAME" >"$OUTPUT_DIRECTORY/$ARTIFACT_NAME.sha256"
-created=$(date -u -d "@$SOURCE_DATE_EPOCH" '+%Y-%m-%dT%H:%M:%SZ')
+created=$(date -u -d "@$FIXED_SOURCE_DATE_EPOCH" '+%Y-%m-%dT%H:%M:%SZ')
 
 cat >"$OUTPUT_DIRECTORY/initrd.spdx.json" <<EOF
 {
@@ -92,7 +87,6 @@ cat >"$OUTPUT_DIRECTORY/initrd.spdx.json" <<EOF
     "versionInfo": "e6a91ad5-rmx1901-safe",
     "downloadLocation": "NOASSERTION",
     "filesAnalyzed": false,
-    "packageVerificationCode": {"packageVerificationCodeValue": "$artifact_sha"},
     "checksums": [{"algorithm": "SHA256", "checksumValue": "$artifact_sha"}],
     "copyrightText": "NOASSERTION",
     "comment": "Derived from pinned base SHA256 $actual_base_sha; size $artifact_size bytes. See manifests and PROVENANCE.md."
