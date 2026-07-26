@@ -1,5 +1,7 @@
 # Local filesystem mounting			-*- shell-script -*-
 
+. /scripts/halium-userdata
+
 _log_msg() {
 	if [ "$quiet" = "y" ]; then return; fi
 	printf "$@" > /dev/kmsg || true
@@ -243,33 +245,6 @@ sync_dirs() {
 	cd $OLD_PWD
 }
 
-resize_userdata_if_needed() {
-
-	# See if the filesystem on the userdata partition needs resizing (usually on first boot).
-	# If the difference between the partition size and the filesystem size is above a small
-	# threshold, assume it needs resizing to fill the partition.
-
-	path=$1
-
-	# Partition size in 1k blocks
-	case $path in
-	/dev/mmcblk*)
-		pblocks=$(grep ${path#/dev/*} /proc/partitions | awk {'print $3'})
-		;;
-	/dev/disk*)
-		pblocks=$(grep $(basename $(readlink $path)) /proc/partitions | awk {'print $3'})
-		;;
-	esac
-	# Filesystem size in 4k blocks
-	fsblocks=$(dumpe2fs -h $path | grep "Block count" | awk {'print $3'})
-	# Difference between the reported sizes in 1k blocks
-	dblocks=$((pblocks - 4 * fsblocks))
-	if [ $dblocks -gt 10000 ]; then
-		resize2fs -f $path
-		tell_kmsg "resized userdata filesystem to fill $path"
-	fi
-}
-
 identify_file_layout() {
 	# Determine if we have a Halium rootfs.img & system.img
 
@@ -466,25 +441,10 @@ mountroot() {
 		halium_panic "Couldn't find data partition."
 	fi
 
-	tell_kmsg "checking filesystem integrity for the userdata partition"
-	# Mounting and umounting first, let the kernel handle the journal and
-	# orphaned inodes (faster than e2fsck). Then, just run e2fsck forcing -y.
-	# Also check the amount of time used by to check the filesystem.
-	fsck_start=$(date +%s)
-	mount -o errors=remount-ro $path /tmpmnt
-	umount /tmpmnt
-	e2fsck -y $path >/run/e2fsck.out 2>&1
-	fsck_end=$(date +%s)
-	tell_kmsg "checking filesystem for userdata took (including e2fsck) $((fsck_end - fsck_start)) seconds"
-
-	resize_userdata_if_needed ${path}
-
-	tell_kmsg "mounting $path"
-
-	# Mount the data partition to a temporary mount point
-	# FIXME: data=journal used on ext4 as a workaround for bug 1387214
-	[ `blkid $path -o value -s TYPE` = "ext4" ] && OPTIONS="data=journal,"
-	mount -o discard,$OPTIONS $path /tmpmnt
+	tell_kmsg "probing and mounting userdata with the RMX1901 safety policy"
+	if ! safe_mount_userdata "$path" /tmpmnt; then
+		return 1
+	fi
 
 	# Set $_syspart if it is specified as systempart= on the command line
 	if grep -q systempart= /proc/cmdline; then

@@ -2,6 +2,38 @@
 
 Hooks and configuration to build a Halium initramfs
 
+## RMX1901 safety fork
+
+This local fork replaces the legacy userdata path with a fail-closed policy:
+
+- accept only an unambiguous `ext4` or `f2fs` result from `blkid`;
+- probe ext4 with `ro,noload` and f2fs with `ro` before any writable mount;
+- require an RMX1901 rootfs payload while userdata is still read-only;
+- never run filesystem repair, resize, or format utilities at boot;
+- attempt a read-only rescue mount and enter Halium panic if writable mounting fails.
+
+Run the behavior fixtures with:
+
+```sh
+/bin/sh tests/test-safe-userdata.sh
+/bin/sh tests/test-derive-initrd.sh
+```
+
+Derive the audited arm64 artifact from the pinned official base asset:
+
+```sh
+/bin/sh tools/derive-initrd.sh /absolute/path/to/pinned-initrd.img-touch-arm64 out/final
+/bin/sh tools/audit-initrd.sh \
+  /absolute/path/to/pinned-initrd.img-touch-arm64 \
+  out/final/initrd.img-touch-arm64-rmx1901-safe \
+  out/final/initrd.before.manifest \
+  out/final/initrd.after.manifest
+```
+
+The builder rejects a base whose SHA-256 is not
+`0bbac4577f3567aec935c958216de5d30c7355452ca56248d6728f4f2634bdb6`.
+It does not stage, embed, or flash its output.
+
 ## Build an initramfs image
 
 Building your own initramfs image wtih the tools in this repository is simple.

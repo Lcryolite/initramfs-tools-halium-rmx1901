@@ -1,0 +1,106 @@
+#!/bin/sh
+set -eu
+
+PROJECT_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+. "$PROJECT_ROOT/tools/archive-lib.sh"
+
+BASE_IMAGE=${1:?usage: derive-initrd.sh BASE_IMAGE OUTPUT_DIRECTORY}
+OUTPUT_DIRECTORY=${2:?usage: derive-initrd.sh BASE_IMAGE OUTPUT_DIRECTORY}
+EXPECTED_BASE_SHA=${EXPECTED_BASE_SHA:-0bbac4577f3567aec935c958216de5d30c7355452ca56248d6728f4f2634bdb6}
+SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH:-1673963166}
+ARTIFACT_NAME=initrd.img-touch-arm64-rmx1901-safe
+BASE_IMAGE=$(readlink -f "$BASE_IMAGE")
+
+actual_base_sha=$(sha256sum "$BASE_IMAGE" | awk '{print $1}')
+if [ "$actual_base_sha" != "$EXPECTED_BASE_SHA" ]; then
+	printf 'base initrd SHA-256 mismatch: expected %s, got %s\n' "$EXPECTED_BASE_SHA" "$actual_base_sha" >&2
+	exit 1
+fi
+
+if [ -e "$OUTPUT_DIRECTORY" ] && [ -n "$(find "$OUTPUT_DIRECTORY" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]; then
+	printf 'output directory must be absent or empty: %s\n' "$OUTPUT_DIRECTORY" >&2
+	exit 1
+fi
+mkdir -p "$OUTPUT_DIRECTORY"
+OUTPUT_DIRECTORY=$(CDPATH= cd -- "$OUTPUT_DIRECTORY" && pwd)
+
+BUILD_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/rmx1901-initrd-build.XXXXXX")
+trap 'rm -rf "$BUILD_ROOT"' EXIT HUP INT TERM
+UNPACKED=$BUILD_ROOT/unpacked
+extract_initrd "$BASE_IMAGE" "$UNPACKED"
+
+manifest_tree "$UNPACKED" "$OUTPUT_DIRECTORY/initrd.before.manifest"
+
+install -m 0644 "$PROJECT_ROOT/scripts/halium" "$UNPACKED/scripts/halium"
+install -m 0644 "$PROJECT_ROOT/scripts/halium-userdata" "$UNPACKED/scripts/halium-userdata"
+rm -f \
+	"$UNPACKED/sbin/e2fsck" \
+	"$UNPACKED/sbin/resize2fs" \
+	"$UNPACKED/sbin/dumpe2fs"
+
+# File content and modes change only for allowlisted paths. Directory mtimes
+# are normalized because GNU cpio extraction updates them while creating
+# children, otherwise identical inputs produce different output bytes.
+find "$UNPACKED" -type d -exec touch -h -d "@$SOURCE_DATE_EPOCH" {} +
+touch -h -d "@$SOURCE_DATE_EPOCH" \
+	"$UNPACKED/scripts/halium" \
+	"$UNPACKED/scripts/halium-userdata"
+
+manifest_tree "$UNPACKED" "$OUTPUT_DIRECTORY/initrd.after.manifest"
+write_delta_manifest \
+	"$OUTPUT_DIRECTORY/initrd.before.manifest" \
+	"$OUTPUT_DIRECTORY/initrd.after.manifest" \
+	"$OUTPUT_DIRECTORY/initrd.delta.manifest"
+
+expected_delta='ADD scripts/halium-userdata
+DELETE sbin/dumpe2fs
+DELETE sbin/e2fsck
+DELETE sbin/resize2fs
+REPLACE scripts/halium'
+actual_delta=$(cat "$OUTPUT_DIRECTORY/initrd.delta.manifest")
+if [ "$actual_delta" != "$expected_delta" ]; then
+	printf 'refusing non-allowlisted archive delta:\n%s\n' "$actual_delta" >&2
+	exit 1
+fi
+
+(
+	cd "$UNPACKED"
+	find . -print0 | LC_ALL=C sort -z | \
+		cpio --null -o -H newc --reproducible --owner=0:0 2>/dev/null | \
+		gzip -n -9 >"$OUTPUT_DIRECTORY/$ARTIFACT_NAME"
+)
+
+artifact_sha=$(sha256sum "$OUTPUT_DIRECTORY/$ARTIFACT_NAME" | awk '{print $1}')
+artifact_size=$(stat -c %s "$OUTPUT_DIRECTORY/$ARTIFACT_NAME")
+printf '%s  %s\n' "$artifact_sha" "$ARTIFACT_NAME" >"$OUTPUT_DIRECTORY/$ARTIFACT_NAME.sha256"
+created=$(date -u -d "@$SOURCE_DATE_EPOCH" '+%Y-%m-%dT%H:%M:%SZ')
+
+cat >"$OUTPUT_DIRECTORY/initrd.spdx.json" <<EOF
+{
+  "spdxVersion": "SPDX-2.3",
+  "dataLicense": "CC0-1.0",
+  "SPDXID": "SPDXRef-DOCUMENT",
+  "name": "RMX1901-safe-Halium-initrd",
+  "documentNamespace": "https://github.com/Lcryolite/initramfs-tools-halium-rmx1901/spdx/$artifact_sha",
+  "creationInfo": {
+    "created": "$created",
+    "creators": ["Tool: tools/derive-initrd.sh"]
+  },
+  "packages": [{
+    "name": "$ARTIFACT_NAME",
+    "SPDXID": "SPDXRef-Package-initrd",
+    "versionInfo": "e6a91ad5-rmx1901-safe",
+    "downloadLocation": "NOASSERTION",
+    "filesAnalyzed": false,
+    "packageVerificationCode": {"packageVerificationCodeValue": "$artifact_sha"},
+    "checksums": [{"algorithm": "SHA256", "checksumValue": "$artifact_sha"}],
+    "copyrightText": "NOASSERTION",
+    "comment": "Derived from pinned base SHA256 $actual_base_sha; size $artifact_size bytes. See manifests and PROVENANCE.md."
+  }],
+  "relationships": [{
+    "spdxElementId": "SPDXRef-DOCUMENT",
+    "relationshipType": "DESCRIBES",
+    "relatedSpdxElement": "SPDXRef-Package-initrd"
+  }]
+}
+EOF

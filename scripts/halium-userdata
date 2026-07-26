@@ -1,0 +1,78 @@
+# RMX1901 userdata mount policy                  -*- shell-script -*-
+
+halium_default_is_block() {
+	[ -b "$1" ]
+}
+
+halium_default_has_payload() {
+	[ -f "$1/rootfs.img" ] || [ -f "$1/ubuntu.img" ] || [ -d "$1/halium-rootfs" ]
+}
+
+halium_default_log() {
+	tell_kmsg "$1"
+}
+
+halium_default_panic() {
+	halium_panic "$1"
+}
+
+safe_mount_userdata() {
+	userdata_device=$1
+	userdata_mountpoint=$2
+
+	: "${HALIUM_BLKID:=blkid}"
+	: "${HALIUM_MOUNT:=mount}"
+	: "${HALIUM_UMOUNT:=umount}"
+	: "${HALIUM_IS_BLOCK:=halium_default_is_block}"
+	: "${HALIUM_HAS_PAYLOAD:=halium_default_has_payload}"
+	: "${HALIUM_LOG:=halium_default_log}"
+	: "${HALIUM_PANIC:=halium_default_panic}"
+
+	if ! "$HALIUM_IS_BLOCK" "$userdata_device"; then
+		"$HALIUM_PANIC" "Userdata path is not a block device"
+		return 1
+	fi
+
+	userdata_type=$("$HALIUM_BLKID" -s TYPE -o value "$userdata_device" 2>/dev/null) || userdata_type=
+	case "$userdata_type" in
+		ext4)
+			userdata_ro_options=ro,noload
+			;;
+		f2fs)
+			userdata_ro_options=ro
+			;;
+		*)
+			"$HALIUM_PANIC" "Unsupported or ambiguous userdata filesystem type"
+			return 1
+			;;
+	esac
+
+	if ! "$HALIUM_MOUNT" -t "$userdata_type" -o "$userdata_ro_options" "$userdata_device" "$userdata_mountpoint"; then
+		"$HALIUM_PANIC" "Could not probe userdata read-only"
+		return 1
+	fi
+
+	if ! "$HALIUM_HAS_PAYLOAD" "$userdata_mountpoint"; then
+		"$HALIUM_LOG" "userdata_mount=readonly-rescue type=$userdata_type path=$userdata_device"
+		"$HALIUM_PANIC" "No RMX1901 rootfs payload found on userdata"
+		return 1
+	fi
+
+	if ! "$HALIUM_UMOUNT" "$userdata_mountpoint"; then
+		"$HALIUM_PANIC" "Could not unmount userdata read-only probe"
+		return 1
+	fi
+
+	if "$HALIUM_MOUNT" -t "$userdata_type" -o rw,noatime "$userdata_device" "$userdata_mountpoint"; then
+		"$HALIUM_LOG" "userdata_mount=readwrite type=$userdata_type path=$userdata_device"
+		return 0
+	fi
+
+	if "$HALIUM_MOUNT" -t "$userdata_type" -o "$userdata_ro_options" "$userdata_device" "$userdata_mountpoint"; then
+		"$HALIUM_LOG" "userdata_mount=readonly-rescue type=$userdata_type path=$userdata_device"
+	else
+		"$HALIUM_LOG" "userdata_mount=rescue-failed type=$userdata_type path=$userdata_device"
+	fi
+	"$HALIUM_PANIC" "Could not mount userdata read-write; left in read-only rescue mode"
+	return 1
+}

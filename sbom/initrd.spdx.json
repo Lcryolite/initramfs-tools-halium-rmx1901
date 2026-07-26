@@ -1,0 +1,27 @@
+{
+  "spdxVersion": "SPDX-2.3",
+  "dataLicense": "CC0-1.0",
+  "SPDXID": "SPDXRef-DOCUMENT",
+  "name": "RMX1901-safe-Halium-initrd",
+  "documentNamespace": "https://github.com/Lcryolite/initramfs-tools-halium-rmx1901/spdx/13756009b3e78eb82540c718a52fae3677d8adaceda5c4fca76478461f57a57b",
+  "creationInfo": {
+    "created": "2023-01-17T13:46:06Z",
+    "creators": ["Tool: tools/derive-initrd.sh"]
+  },
+  "packages": [{
+    "name": "initrd.img-touch-arm64-rmx1901-safe",
+    "SPDXID": "SPDXRef-Package-initrd",
+    "versionInfo": "e6a91ad5-rmx1901-safe",
+    "downloadLocation": "NOASSERTION",
+    "filesAnalyzed": false,
+    "packageVerificationCode": {"packageVerificationCodeValue": "13756009b3e78eb82540c718a52fae3677d8adaceda5c4fca76478461f57a57b"},
+    "checksums": [{"algorithm": "SHA256", "checksumValue": "13756009b3e78eb82540c718a52fae3677d8adaceda5c4fca76478461f57a57b"}],
+    "copyrightText": "NOASSERTION",
+    "comment": "Derived from pinned base SHA256 0bbac4577f3567aec935c958216de5d30c7355452ca56248d6728f4f2634bdb6; size 3942325 bytes. See manifests and PROVENANCE.md."
+  }],
+  "relationships": [{
+    "spdxElementId": "SPDXRef-DOCUMENT",
+    "relationshipType": "DESCRIBES",
+    "relatedSpdxElement": "SPDXRef-Package-initrd"
+  }]
+}
