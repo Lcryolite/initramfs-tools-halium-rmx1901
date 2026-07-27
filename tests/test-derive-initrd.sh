@@ -57,10 +57,14 @@ for tool in e2fsck resize2fs dumpe2fs; do
 	[ ! -e "$DERIVED_EXTRACTED/sbin/$tool" ] || fail "$tool remains in derived initrd"
 done
 [ -f "$DERIVED_EXTRACTED/scripts/halium-userdata" ] || fail "safe policy missing from derived initrd"
+[ -f "$DERIVED_EXTRACTED/scripts/halium-rmx1901-debug" ] || fail "diagnostic policy missing from derived initrd"
 HALIUM_POLICY_UNDER_TEST="$DERIVED_EXTRACTED/scripts/halium-userdata" \
 	/bin/sh "$PROJECT_ROOT/tests/test-safe-userdata.sh" >/dev/null || fail "packed policy behavior failed"
+RMX1901_DEBUG_POLICY_UNDER_TEST="$DERIVED_EXTRACTED/scripts/halium-rmx1901-debug" \
+	/bin/sh "$PROJECT_ROOT/tests/test-debug-rndis.sh" >/dev/null || fail "packed diagnostic policy behavior failed"
 
-expected_delta='ADD scripts/halium-userdata
+expected_delta='ADD scripts/halium-rmx1901-debug
+ADD scripts/halium-userdata
 DELETE sbin/dumpe2fs
 DELETE sbin/e2fsck
 DELETE sbin/resize2fs
@@ -69,5 +73,7 @@ REPLACE scripts/halium'
 
 created=$(jq -r '.creationInfo.created' "$OUT_ONE/initrd.spdx.json")
 [ "$created" = 2023-01-17T13:46:06Z ] || fail "SBOM epoch does not match pinned release timestamp"
+[ "$(jq -r '.packages[0].versionInfo' "$OUT_ONE/initrd.spdx.json")" = rmx1901-safe-debug-v1 ] ||
+	fail "SBOM diagnostic version is stale"
 [ -s "$OUT_ONE/initrd.img-touch-arm64-rmx1901-safe.sha256" ] || fail "artifact hash record missing"
 printf 'ok - deterministic pinned derivation, allowlist delta, tool removal, audit, and metadata\n'

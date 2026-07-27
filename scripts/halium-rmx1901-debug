@@ -1,0 +1,241 @@
+#!/bin/sh
+
+rmx1901_debug_requested() {
+	dbg_cmdline=${1-}
+	dbg_count=0
+	case $- in
+		*f*) dbg_restore_glob=0 ;;
+		*) set -f; dbg_restore_glob=1 ;;
+	esac
+	for dbg_word in $dbg_cmdline; do
+		case "$dbg_word" in
+			rmx1901.debug_rndis=1)
+				dbg_count=$((dbg_count + 1))
+				;;
+			rmx1901.debug_rndis=*)
+				dbg_count=2
+				;;
+		esac
+	done
+	if [ "$dbg_restore_glob" -eq 1 ]; then
+		set +f
+	fi
+	[ "$dbg_count" -eq 1 ]
+}
+
+rmx1901_debug_write() {
+	printf '%s' "$2" >"$1"
+}
+
+rmx1901_debug_cleanup() {
+	dbg_cleanup_gadget=$1
+	dbg_cleanup_mask=$2
+	dbg_cleanup_handoff=$3
+
+	if [ -e "$dbg_cleanup_gadget/UDC" ]; then
+		rmx1901_debug_write "$dbg_cleanup_gadget/UDC" '' 2>/dev/null || true
+	fi
+	ifconfig rndis0 down 2>/dev/null || true
+	ifconfig usb0 down 2>/dev/null || true
+	for dbg_cleanup_link in rndis.usb0 rndis_bam.rndis; do
+		[ ! -L "$dbg_cleanup_gadget/configs/c.1/$dbg_cleanup_link" ] ||
+			/bin/rm -f "$dbg_cleanup_gadget/configs/c.1/$dbg_cleanup_link" 2>/dev/null || true
+	done
+	# Regular-file attributes exist only in the stateful host fixture; configfs
+	# attributes are kernel-owned and simply reject unlink.
+	/bin/rm -f \
+		"$dbg_cleanup_gadget/idVendor" \
+		"$dbg_cleanup_gadget/idProduct" \
+		"$dbg_cleanup_gadget/UDC" \
+		"$dbg_cleanup_gadget/strings/0x409/serialnumber" \
+		"$dbg_cleanup_gadget/strings/0x409/manufacturer" \
+		"$dbg_cleanup_gadget/strings/0x409/product" \
+		"$dbg_cleanup_gadget/configs/c.1/strings/0x409/configuration" \
+		2>/dev/null || true
+	rmdir "$dbg_cleanup_gadget/configs/c.1/strings/0x409" 2>/dev/null || true
+	rmdir "$dbg_cleanup_gadget/configs/c.1/strings" 2>/dev/null || true
+	rmdir "$dbg_cleanup_gadget/configs/c.1" 2>/dev/null || true
+	rmdir "$dbg_cleanup_gadget/functions/rndis.usb0" 2>/dev/null || true
+	rmdir "$dbg_cleanup_gadget/functions/rndis_bam.rndis" 2>/dev/null || true
+	rmdir "$dbg_cleanup_gadget/strings/0x409" 2>/dev/null || true
+	rmdir "$dbg_cleanup_gadget/strings" 2>/dev/null || true
+	rmdir "$dbg_cleanup_gadget/configs" 2>/dev/null || true
+	rmdir "$dbg_cleanup_gadget/functions" 2>/dev/null || true
+	rmdir "$dbg_cleanup_gadget" 2>/dev/null || true
+	if [ -L "$dbg_cleanup_mask" ] && [ "$(readlink "$dbg_cleanup_mask" 2>/dev/null)" = /dev/null ]; then
+		/bin/rm -f "$dbg_cleanup_mask" 2>/dev/null || true
+	fi
+	/bin/rm -f "$dbg_cleanup_handoff" 2>/dev/null || true
+}
+
+rmx1901_enable_debug_bridge() {
+	dbg_root=${1-}
+	dbg_gadget_dir=${RMX1901_GADGET_DIR:-/sys/kernel/config/usb_gadget}
+	dbg_udc_dir=${RMX1901_UDC_DIR:-/sys/class/udc}
+	dbg_net_dir=${RMX1901_NET_DIR:-/sys/class/net}
+	dbg_runtime_dir=${RMX1901_RUNTIME_DIR:-/run}
+	dbg_gadget=$dbg_gadget_dir/g1
+	dbg_usb_unit=$dbg_root/usr/lib/systemd/system/usb-moded.service
+	dbg_runtime_systemd=$dbg_runtime_dir/systemd/system
+	dbg_runtime_mask=$dbg_runtime_systemd/usb-moded.service
+	dbg_handoff=$dbg_runtime_dir/rmx1901-debug-handoff
+	dbg_authorized_key=$dbg_root/opt/halium-overlay/etc/ssh/authorized_keys/rmx1901-bringup
+
+	[ -n "$dbg_root" ] || return 1
+	[ -f "$dbg_usb_unit" ] || return 1
+	[ -f "$dbg_authorized_key" ] || return 1
+	[ -d "$dbg_root/run" ] || return 1
+	for dbg_root_tool in \
+		/bin/sh /bin/busybox /bin/rm /bin/rmdir /bin/readlink \
+		/usr/bin/setsid /usr/bin/ssh-keygen /usr/sbin/sshd; do
+		[ -x "$dbg_root$dbg_root_tool" ] || return 1
+	done
+	grep -q '^phablet:' "$dbg_root/var/lib/extrausers/passwd" 2>/dev/null || return 1
+	if [ ! -d "$dbg_gadget_dir" ]; then
+		[ "$dbg_gadget_dir" = /sys/kernel/config/usb_gadget ] || return 1
+		mkdir -p /sys/kernel/config || return 1
+		mount -t configfs none /sys/kernel/config 2>/dev/null ||
+			[ -d "$dbg_gadget_dir" ] || return 1
+	fi
+	[ -d "$dbg_gadget_dir" ] || return 1
+	[ ! -e "$dbg_gadget" ] || return 1
+	[ -d "$dbg_runtime_dir" ] || return 1
+
+	set -- "$dbg_udc_dir"/*
+	[ "$#" -eq 1 ] && [ -e "$1" ] || return 1
+	dbg_udc=${1##*/}
+
+	mkdir -p "$dbg_runtime_systemd" || return 1
+	[ ! -e "$dbg_runtime_mask" ] && [ ! -L "$dbg_runtime_mask" ] || return 1
+	ln -s /dev/null "$dbg_runtime_mask" || return 1
+	printf 'pending\n' >"$dbg_handoff" || {
+		rmx1901_debug_cleanup "$dbg_gadget" "$dbg_runtime_mask" "$dbg_handoff"
+		return 1
+	}
+
+	if ! mkdir "$dbg_gadget" ||
+		! mkdir -p "$dbg_gadget/functions" "$dbg_gadget/configs" "$dbg_gadget/strings" ||
+		! rmx1901_debug_write "$dbg_gadget/idVendor" 0x18D1 ||
+		! rmx1901_debug_write "$dbg_gadget/idProduct" 0xD001 ||
+		! mkdir "$dbg_gadget/strings/0x409" ||
+		! rmx1901_debug_write "$dbg_gadget/strings/0x409/serialnumber" rmx1901-diagnostic ||
+		! rmx1901_debug_write "$dbg_gadget/strings/0x409/manufacturer" 'Halium initrd' ||
+		! rmx1901_debug_write "$dbg_gadget/strings/0x409/product" 'RMX1901 diagnostic bridge' ||
+		! mkdir "$dbg_gadget/functions/rndis.usb0" ||
+		! mkdir "$dbg_gadget/functions/rndis_bam.rndis" ||
+		! mkdir "$dbg_gadget/configs/c.1" ||
+		! mkdir -p "$dbg_gadget/configs/c.1/strings" ||
+		! mkdir "$dbg_gadget/configs/c.1/strings/0x409" ||
+		! rmx1901_debug_write "$dbg_gadget/configs/c.1/strings/0x409/configuration" rndis ||
+		! ln -s "$dbg_gadget/functions/rndis.usb0" "$dbg_gadget/configs/c.1/rndis.usb0" ||
+		! ln -s "$dbg_gadget/functions/rndis_bam.rndis" "$dbg_gadget/configs/c.1/rndis_bam.rndis" ||
+		! rmx1901_debug_write "$dbg_gadget/UDC" "$dbg_udc"; then
+		rmx1901_debug_cleanup "$dbg_gadget" "$dbg_runtime_mask" "$dbg_handoff"
+		return 1
+	fi
+
+	dbg_iface=
+	dbg_iface_wait=0
+	while [ -z "$dbg_iface" ] && [ "$dbg_iface_wait" -lt 50 ]; do
+		for dbg_iface_candidate in rndis0 usb0; do
+			if [ -d "$dbg_net_dir/$dbg_iface_candidate" ]; then
+				dbg_iface=$dbg_iface_candidate
+				break
+			fi
+		done
+		[ -n "$dbg_iface" ] || usleep 100000
+		dbg_iface_wait=$((dbg_iface_wait + 1))
+	done
+	if [ -z "$dbg_iface" ] ||
+	   ! ifconfig "$dbg_iface" 192.168.2.15 netmask 255.255.255.0 up; then
+		rmx1901_debug_cleanup "$dbg_gadget" "$dbg_runtime_mask" "$dbg_handoff"
+		return 1
+	fi
+
+	# Enter the new root before run-init.  setsid detaches the helper from the
+	# initramfs shell; all generated state remains in the rootfs /run tmpfs.
+	chroot "$dbg_root" /usr/bin/setsid /bin/sh -c '
+		set -eu
+		dbg_iface=$1
+		dbg_dhcp_pid=
+		debug_inner_cleanup() {
+			trap - 0 1 2 3 15
+			if [ -n "$dbg_dhcp_pid" ]; then
+				kill "$dbg_dhcp_pid" 2>/dev/null || true
+				wait "$dbg_dhcp_pid" 2>/dev/null || true
+			fi
+			/bin/busybox ifconfig "$dbg_iface" down 2>/dev/null || true
+			dbg_gadget=/sys/kernel/config/usb_gadget/g1
+			[ ! -e "$dbg_gadget/UDC" ] || printf "" > "$dbg_gadget/UDC" 2>/dev/null || true
+			/bin/rm -f \
+				"$dbg_gadget/configs/c.1/rndis.usb0" \
+				"$dbg_gadget/configs/c.1/rndis_bam.rndis" \
+				2>/dev/null || true
+			/bin/rmdir "$dbg_gadget/configs/c.1/strings/0x409" 2>/dev/null || true
+			/bin/rmdir "$dbg_gadget/configs/c.1" 2>/dev/null || true
+			/bin/rmdir "$dbg_gadget/functions/rndis.usb0" 2>/dev/null || true
+			/bin/rmdir "$dbg_gadget/functions/rndis_bam.rndis" 2>/dev/null || true
+			/bin/rmdir "$dbg_gadget/strings/0x409" 2>/dev/null || true
+			/bin/rmdir "$dbg_gadget" 2>/dev/null || true
+			dbg_mask=/run/systemd/system/usb-moded.service
+			if [ -L "$dbg_mask" ] && [ "$(/bin/readlink "$dbg_mask" 2>/dev/null)" = /dev/null ]; then
+				/bin/rm -f "$dbg_mask" 2>/dev/null || true
+			fi
+			/bin/rm -f /run/rmx1901-debug-handoff 2>/dev/null || true
+		}
+		trap debug_inner_cleanup 0 1 2 3 15
+		dbg_wait=0
+		while [ ! -e /run/rmx1901-debug-handoff ] ||
+		      [ ! -c /dev/urandom ] || [ ! -r /proc/1/stat ]; do
+			dbg_wait=$((dbg_wait + 1))
+			[ "$dbg_wait" -le 600 ] || exit 1
+			sleep 0.1
+		done
+		/bin/busybox ifconfig "$dbg_iface" 192.168.2.15 netmask 255.255.255.0 up
+		printf "%s\n" \
+			"start 192.168.2.20" \
+			"end 192.168.2.90" \
+			"lease_file /run/rmx1901-debug-udhcpd.leases" \
+			"interface $dbg_iface" \
+			"option subnet 255.255.255.0" \
+			> /run/rmx1901-debug-udhcpd.conf
+		/bin/busybox udhcpd -f /run/rmx1901-debug-udhcpd.conf \
+			> /run/rmx1901-debug-udhcpd.log 2>&1 &
+		dbg_dhcp_pid=$!
+		mkdir -p /run/sshd
+		rm -f /run/rmx1901-debug-hostkey /run/rmx1901-debug-hostkey.pub
+		/usr/bin/ssh-keygen -q -t ed25519 -N "" -f /run/rmx1901-debug-hostkey
+		set -- \
+			-f /dev/null \
+			-h /run/rmx1901-debug-hostkey \
+			-o PidFile=/run/rmx1901-debug-sshd.pid \
+			-o UsePAM=no \
+			-o PasswordAuthentication=no \
+			-o PermitEmptyPasswords=no \
+			-o KbdInteractiveAuthentication=no \
+			-o PubkeyAuthentication=yes \
+			-o AuthenticationMethods=publickey \
+			-o AuthorizedKeysFile=/opt/halium-overlay/etc/ssh/authorized_keys/rmx1901-bringup \
+			-o StrictModes=yes \
+			-o PermitRootLogin=no \
+			-o AllowUsers=phablet \
+			-o ListenAddress=192.168.2.15 \
+			-o Port=22 \
+			-o DisableForwarding=yes \
+			-o X11Forwarding=no \
+			-o AllowAgentForwarding=no \
+			-o AllowTcpForwarding=no \
+			-o GatewayPorts=no \
+			-o PermitTunnel=no \
+			-o UseDNS=no
+		/usr/sbin/sshd -t "$@"
+		/usr/sbin/sshd -D -e "$@"
+	' rmx1901-debug "$dbg_iface" >"$dbg_runtime_dir/rmx1901-debug-ssh.log" 2>&1 &
+	dbg_helper_pid=$!
+	if ! kill -0 "$dbg_helper_pid" 2>/dev/null; then
+		rmx1901_debug_cleanup "$dbg_gadget" "$dbg_runtime_mask" "$dbg_handoff"
+		return 1
+	fi
+
+	return 0
+}

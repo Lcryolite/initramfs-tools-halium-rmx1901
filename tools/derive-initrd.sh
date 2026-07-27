@@ -33,6 +33,7 @@ manifest_tree "$UNPACKED" "$OUTPUT_DIRECTORY/initrd.before.manifest"
 
 install -m 0644 "$PROJECT_ROOT/scripts/halium" "$UNPACKED/scripts/halium"
 install -m 0644 "$PROJECT_ROOT/scripts/halium-userdata" "$UNPACKED/scripts/halium-userdata"
+install -m 0644 "$PROJECT_ROOT/scripts/halium-rmx1901-debug" "$UNPACKED/scripts/halium-rmx1901-debug"
 rm -f \
 	"$UNPACKED/sbin/e2fsck" \
 	"$UNPACKED/sbin/resize2fs" \
@@ -44,7 +45,8 @@ rm -f \
 find "$UNPACKED" -type d -exec touch -h -d "@$FIXED_SOURCE_DATE_EPOCH" {} +
 touch -h -d "@$FIXED_SOURCE_DATE_EPOCH" \
 	"$UNPACKED/scripts/halium" \
-	"$UNPACKED/scripts/halium-userdata"
+	"$UNPACKED/scripts/halium-userdata" \
+	"$UNPACKED/scripts/halium-rmx1901-debug"
 
 manifest_tree "$UNPACKED" "$OUTPUT_DIRECTORY/initrd.after.manifest"
 write_delta_manifest \
@@ -52,7 +54,8 @@ write_delta_manifest \
 	"$OUTPUT_DIRECTORY/initrd.after.manifest" \
 	"$OUTPUT_DIRECTORY/initrd.delta.manifest"
 
-expected_delta='ADD scripts/halium-userdata
+expected_delta='ADD scripts/halium-rmx1901-debug
+ADD scripts/halium-userdata
 DELETE sbin/dumpe2fs
 DELETE sbin/e2fsck
 DELETE sbin/resize2fs
@@ -84,7 +87,7 @@ cat >"$OUTPUT_DIRECTORY/initrd.spdx.json" <<EOF
   "packages": [{
     "name": "$ARTIFACT_NAME",
     "SPDXID": "SPDXRef-Package-initrd",
-    "versionInfo": "e6a91ad5-rmx1901-safe",
+    "versionInfo": "rmx1901-safe-debug-v1",
     "downloadLocation": "NOASSERTION",
     "filesAnalyzed": false,
     "checksums": [{"algorithm": "SHA256", "checksumValue": "$artifact_sha"}],

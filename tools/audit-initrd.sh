@@ -29,7 +29,8 @@ cmp "$RECORDED_BEFORE" "$AUDIT_ROOT/before.manifest"
 cmp "$RECORDED_AFTER" "$AUDIT_ROOT/after.manifest"
 
 write_delta_manifest "$AUDIT_ROOT/before.manifest" "$AUDIT_ROOT/after.manifest" "$AUDIT_ROOT/delta.manifest"
-expected_delta='ADD scripts/halium-userdata
+expected_delta='ADD scripts/halium-rmx1901-debug
+ADD scripts/halium-userdata
 DELETE sbin/dumpe2fs
 DELETE sbin/e2fsck
 DELETE sbin/resize2fs
@@ -49,18 +50,21 @@ done
 
 if grep -E '[;&|[:space:]](e2fsck|resize2fs|dumpe2fs|mke2fs|mkfs(\.[^;&|[:space:]]*)?|fsck\.f2fs)([;&|[:space:]]|$)' \
 	"$AUDIT_ROOT/derived/scripts/halium" \
-	"$AUDIT_ROOT/derived/scripts/halium-userdata"; then
+	"$AUDIT_ROOT/derived/scripts/halium-userdata" \
+	"$AUDIT_ROOT/derived/scripts/halium-rmx1901-debug"; then
 	printf 'forbidden filesystem mutation command appears in boot control path\n' >&2
 	exit 1
 fi
 
 if grep -E '(^|[,[:space:]])(discard|data=journal)([,[:space:]]|$)' \
 	"$AUDIT_ROOT/derived/scripts/halium" \
-	"$AUDIT_ROOT/derived/scripts/halium-userdata"; then
+	"$AUDIT_ROOT/derived/scripts/halium-userdata" \
+	"$AUDIT_ROOT/derived/scripts/halium-rmx1901-debug"; then
 	printf 'forbidden userdata mount option appears in boot control path\n' >&2
 	exit 1
 fi
 
 cmp "$PROJECT_ROOT/scripts/halium" "$AUDIT_ROOT/derived/scripts/halium"
 cmp "$PROJECT_ROOT/scripts/halium-userdata" "$AUDIT_ROOT/derived/scripts/halium-userdata"
+cmp "$PROJECT_ROOT/scripts/halium-rmx1901-debug" "$AUDIT_ROOT/derived/scripts/halium-rmx1901-debug"
 printf 'audit ok: allowlisted delta only; forbidden tools/commands/options absent\n'

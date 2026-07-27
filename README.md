@@ -30,10 +30,20 @@ The parser disables pathname expansion while reading command-line words, and a
 failed validated-system mount enters Halium panic instead of continuing with a
 missing root filesystem.
 
+For early userspace diagnosis, the fork also contains a dormant RMX1901 bridge
+that is enabled only by exactly one literal `rmx1901.debug_rndis=1` kernel
+command-line token. After a successful mountroot it configures the same RNDIS
+gadget proven by the panic handler, runtime-masks usb-moded for that boot, and
+starts an independently chrooted, public-key-only SSH server after `/dev` and
+`/proc` cross the run-init handoff. Its host key, DHCP state, service mask, and
+logs live only in `/run`; it does not create a userdata marker. Diagnostic
+setup failure is logged but never aborts the normal boot path.
+
 Run the behavior fixtures with:
 
 ```sh
 /bin/sh tests/test-safe-userdata.sh
+/bin/sh tests/test-debug-rndis.sh
 /bin/sh tests/test-derive-initrd.sh
 ```
 
