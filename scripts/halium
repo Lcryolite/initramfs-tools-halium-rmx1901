@@ -3,6 +3,48 @@
 . /scripts/halium-userdata
 . /scripts/halium-rmx1901-debug
 
+RMX1901_HANDOFF_LOG=${RMX1901_HANDOFF_LOG:-/run/rmx1901-handoff.events}
+RMX1901_HANDOFF_SEQUENCE=${RMX1901_HANDOFF_SEQUENCE:-0}
+
+# M1 handoff evidence is deliberately append-only.  The log stays on the
+# initramfs tmpfs until /run is moved into the new root; kmsg provides an
+# independent copy for a failed handoff.  Later /init-owned boundaries use
+# the same stage vocabulary, but are not claimed here until that base init is
+# instrumented.
+rmx1901_handoff_event() {
+	rmx1901_event_stage=$1
+	shift
+	case "$rmx1901_event_stage" in
+		CMDLINE_PARSED) rmx1901_event_index=1 ;;
+		ROOT_DEVICE_RESOLVED) rmx1901_event_index=2 ;;
+		USERDATA_PROBED) rmx1901_event_index=3 ;;
+		ROOTFS_MOUNTED) rmx1901_event_index=4 ;;
+		DEV_MOVE_BEGIN) rmx1901_event_index=5 ;;
+		DEV_MOVE_DONE) rmx1901_event_index=6 ;;
+		CONSOLE_OPEN_OK|CONSOLE_OPEN_FAILED) rmx1901_event_index=7 ;;
+		RUN_MOVE_BEGIN) rmx1901_event_index=8 ;;
+		RUN_MOVE_DONE) rmx1901_event_index=9 ;;
+		HANDOFF_MARKER_VISIBLE|HANDOFF_MARKER_MISSING) rmx1901_event_index=10 ;;
+		RUN_INIT_EXEC) rmx1901_event_index=11 ;;
+		*)
+			tell_kmsg "RMX1901_HANDOFF invalid-stage=$rmx1901_event_stage"
+			return 1
+			;;
+	esac
+
+	rmx1901_expected_index=$((RMX1901_HANDOFF_SEQUENCE + 1))
+	if [ "$rmx1901_event_index" -ne "$rmx1901_expected_index" ]; then
+		tell_kmsg "RMX1901_HANDOFF out-of-order stage=$rmx1901_event_stage expected=$rmx1901_expected_index"
+		return 1
+	fi
+
+	RMX1901_HANDOFF_SEQUENCE=$rmx1901_event_index
+	rmx1901_event_line="RMX1901_HANDOFF sequence=$RMX1901_HANDOFF_SEQUENCE stage=$rmx1901_event_stage"
+	[ "$#" -eq 0 ] || rmx1901_event_line="$rmx1901_event_line $*"
+	printf '%s\n' "$rmx1901_event_line" >>"$RMX1901_HANDOFF_LOG" 2>/dev/null || true
+	printf '<6>initrd: %s\n' "$rmx1901_event_line" >/dev/kmsg 2>/dev/null || true
+}
+
 _log_msg() {
 	if [ "$quiet" = "y" ]; then return; fi
 	printf "$@" > /dev/kmsg || true
@@ -405,6 +447,10 @@ mountroot() {
 
 	# Make sure the device has been created by udev before we try to mount
 	udevadm settle
+	cmdline=$(cat /proc/cmdline)
+	case " $cmdline " in *" console="*) rmx1901_console_token=present ;; *) rmx1901_console_token=missing ;; esac
+	case " $cmdline " in *" systempart="*) rmx1901_systempart_token=present ;; *) rmx1901_systempart_token=missing ;; esac
+	rmx1901_handoff_event CMDLINE_PARSED "systempart=$rmx1901_systempart_token console=$rmx1901_console_token" || return 1
 
 	# find the right partition
 	for partname in $partlist; do
@@ -429,7 +475,7 @@ mountroot() {
 
 	# override with a possible cmdline parameter
 	if grep -q datapart= /proc/cmdline; then
-		for x in $(cat /proc/cmdline); do
+		for x in $cmdline; do
 			case ${x} in
 			datapart=*)
 				path=${x#*=}
@@ -442,15 +488,20 @@ mountroot() {
 		halium_panic "Couldn't find data partition."
 	fi
 
-	if ! validate_rmx1901_systempart_cmdline "$(cat /proc/cmdline)"; then
+	if ! validate_rmx1901_systempart_cmdline "$cmdline"; then
 		return 1
 	fi
 	_syspart=$rmx1901_systempart_canonical
+	path_canonical=$(halium_canonical_path "$path" 2>/dev/null || true)
+	path_major_minor=$(halium_major_minor "$path_canonical" 2>/dev/null || true)
+	syspart_major_minor=$(halium_major_minor "$_syspart" 2>/dev/null || true)
+	rmx1901_handoff_event ROOT_DEVICE_RESOLVED "userdata=$path_canonical userdata_mm=$path_major_minor system=${_syspart:-none} system_mm=${syspart_major_minor:-none}" || return 1
 
 	tell_kmsg "probing and mounting userdata with the RMX1901 safety policy"
 	if ! safe_mount_userdata "$path" /tmpmnt; then
 		return 1
 	fi
+	rmx1901_handoff_event USERDATA_PROBED "path=$path_canonical mode=readonly" || return 1
 
 	identify_file_layout
 
@@ -472,12 +523,15 @@ mountroot() {
 		if ! safe_mount_rmx1901_systempart /halium-system; then
 			return 1
 		fi
+		rmx1901_rootfs_source=$_syspart
 	elif [ -f "$imagefile" ]; then
 		# Rootfs is an image file
 		mount -o loop,rw $imagefile /halium-system
+		rmx1901_rootfs_source=$imagefile
 	elif [ -d "$imagefile" ]; then
 		# Rootfs is a directory
 		mount -o bind /tmpmnt/halium-rootfs /halium-system
+		rmx1901_rootfs_source=/tmpmnt/halium-rootfs
 	fi
 	
 	# Identify image mode: either "rootfs" or "system"
@@ -498,6 +552,8 @@ mountroot() {
 		mount -o remount,ro /halium-system
 		mountroot_status="$?"
 	fi
+	rmx1901_rootfs_mount=$(awk '$2 == "/halium-system" { print "source=" $1 " fstype=" $3 " options=" $4; exit }' /proc/mounts)
+	rmx1901_handoff_event ROOTFS_MOUNTED "requested_source=${rmx1901_rootfs_source:-unknown} ${rmx1901_rootfs_mount:-mountinfo=missing}" || return 1
 
 	# Mount the android system partition to a temporary location
 	MOUNT="ro"

@@ -67,4 +67,19 @@ fi
 cmp "$PROJECT_ROOT/scripts/halium" "$AUDIT_ROOT/derived/scripts/halium"
 cmp "$PROJECT_ROOT/scripts/halium-userdata" "$AUDIT_ROOT/derived/scripts/halium-userdata"
 cmp "$PROJECT_ROOT/scripts/halium-rmx1901-debug" "$AUDIT_ROOT/derived/scripts/halium-rmx1901-debug"
+sh -n "$AUDIT_ROOT/derived/scripts/halium"
+for handoff_stage in \
+	CMDLINE_PARSED ROOT_DEVICE_RESOLVED USERDATA_PROBED ROOTFS_MOUNTED \
+	DEV_MOVE_BEGIN DEV_MOVE_DONE CONSOLE_OPEN_OK CONSOLE_OPEN_FAILED \
+	RUN_MOVE_BEGIN RUN_MOVE_DONE HANDOFF_MARKER_VISIBLE HANDOFF_MARKER_MISSING RUN_INIT_EXEC; do
+	if ! grep -Fq "$handoff_stage" "$AUDIT_ROOT/derived/scripts/halium"; then
+		printf 'handoff event vocabulary missing: %s\n' "$handoff_stage" >&2
+		exit 1
+	fi
+done
+if ! grep -Fq '>>"$RMX1901_HANDOFF_LOG"' "$AUDIT_ROOT/derived/scripts/halium" ||
+	! grep -Fq '>/dev/kmsg' "$AUDIT_ROOT/derived/scripts/halium"; then
+	printf 'handoff event sink is not append-only tmpfs plus kmsg\n' >&2
+	exit 1
+fi
 printf 'audit ok: allowlisted delta only; forbidden tools/commands/options absent\n'
