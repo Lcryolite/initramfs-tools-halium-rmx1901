@@ -3,6 +3,7 @@ set -eu
 
 PROJECT_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 . "$PROJECT_ROOT/tools/archive-lib.sh"
+BASE_INIT_PATCH=$PROJECT_ROOT/patches/0001-rmx1901-record-base-init-handoff-events.patch
 
 BASE_IMAGE=${1:?usage: audit-initrd.sh BASE DERIVED BEFORE_MANIFEST AFTER_MANIFEST}
 DERIVED_IMAGE=${2:?usage: audit-initrd.sh BASE DERIVED BEFORE_MANIFEST AFTER_MANIFEST}
@@ -23,6 +24,17 @@ AUDIT_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/rmx1901-initrd-audit.XXXXXX")
 trap 'rm -rf "$AUDIT_ROOT"' EXIT HUP INT TERM
 extract_initrd "$BASE_IMAGE" "$AUDIT_ROOT/base"
 extract_initrd "$DERIVED_IMAGE" "$AUDIT_ROOT/derived"
+test -f "$BASE_INIT_PATCH" || {
+	printf 'RMX1901 base-init handoff patch is missing: %s\n' "$BASE_INIT_PATCH" >&2
+	exit 1
+}
+mkdir "$AUDIT_ROOT/expected-init"
+cp "$AUDIT_ROOT/base/init" "$AUDIT_ROOT/expected-init/init"
+(cd "$AUDIT_ROOT/expected-init" && patch --batch --fuzz=0 -p1 <"$BASE_INIT_PATCH") || {
+	printf 'RMX1901 base-init handoff patch did not apply during audit\n' >&2
+	exit 1
+}
+cmp "$AUDIT_ROOT/expected-init/init" "$AUDIT_ROOT/derived/init"
 manifest_tree "$AUDIT_ROOT/base" "$AUDIT_ROOT/before.manifest"
 manifest_tree "$AUDIT_ROOT/derived" "$AUDIT_ROOT/after.manifest"
 cmp "$RECORDED_BEFORE" "$AUDIT_ROOT/before.manifest"
@@ -34,6 +46,7 @@ ADD scripts/halium-userdata
 DELETE sbin/dumpe2fs
 DELETE sbin/e2fsck
 DELETE sbin/resize2fs
+REPLACE init
 REPLACE scripts/halium'
 [ "$(cat "$AUDIT_ROOT/delta.manifest")" = "$expected_delta" ] || {
 	printf 'audit rejected non-allowlisted delta:\n' >&2
@@ -82,4 +95,11 @@ if ! grep -Fq '>>"$RMX1901_HANDOFF_LOG"' "$AUDIT_ROOT/derived/scripts/halium" ||
 	printf 'handoff event sink is not append-only tmpfs plus kmsg\n' >&2
 	exit 1
 fi
+for handoff_stage in DEV_MOVE_BEGIN DEV_MOVE_DONE CONSOLE_OPEN_OK CONSOLE_OPEN_FAILED \
+	RUN_MOVE_BEGIN RUN_MOVE_DONE HANDOFF_MARKER_VISIBLE HANDOFF_MARKER_MISSING RUN_INIT_EXEC; do
+	if ! grep -Fq "$handoff_stage" "$AUDIT_ROOT/derived/init"; then
+		printf 'base-init handoff event missing: %s\n' "$handoff_stage" >&2
+		exit 1
+	fi
+done
 printf 'audit ok: allowlisted delta only; forbidden tools/commands/options absent\n'

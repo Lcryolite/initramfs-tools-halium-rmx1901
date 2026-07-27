@@ -1,0 +1,47 @@
+--- a/init
++++ b/init
+@@ -244,11 +244,35 @@
+ maybe_break bottom
+ [ "$quiet" != "y" ] && log_begin_msg "Running /scripts/init-bottom"
+ # We expect udev's init-bottom script to move /dev to ${rootmnt}/dev
++rmx1901_handoff_event DEV_MOVE_BEGIN "rootmnt=${rootmnt}" || panic "RMX1901 handoff event failure before /dev move"
+ run_scripts /scripts/init-bottom
++rmx1901_handoff_event DEV_MOVE_DONE "rootmnt=${rootmnt}" || panic "RMX1901 handoff event failure after /dev move"
+ [ "$quiet" != "y" ] && log_end_msg
+ 
+ # Move /run to the root
+-mount -n -o move /run ${rootmnt}/run
++if : <"${rootmnt}/dev/console" >"${rootmnt}/dev/console"; then
++	rmx1901_handoff_event CONSOLE_OPEN_OK "path=${rootmnt}/dev/console" || panic "RMX1901 console event failure"
++else
++	rmx1901_handoff_event CONSOLE_OPEN_FAILED "path=${rootmnt}/dev/console" || true
++	panic "RMX1901 target console unavailable"
++fi
++
++# Move /run to the root
++rmx1901_handoff_event RUN_MOVE_BEGIN "from=/run to=${rootmnt}/run" || panic "RMX1901 handoff event failure before /run move"
++if mount -n -o move /run "${rootmnt}/run"; then
++	RMX1901_HANDOFF_LOG="${rootmnt}/run/rmx1901-handoff.events"
++	rmx1901_handoff_event RUN_MOVE_DONE "path=${RMX1901_HANDOFF_LOG}" || panic "RMX1901 handoff event failure after /run move"
++else
++	echo "RMX1901_HANDOFF /run move failed" >/dev/kmsg 2>/dev/null || true
++	panic "RMX1901 /run handoff failed"
++fi
++
++if [ -s "${RMX1901_HANDOFF_LOG}" ]; then
++	rmx1901_handoff_event HANDOFF_MARKER_VISIBLE "path=${RMX1901_HANDOFF_LOG}" || panic "RMX1901 handoff marker event failure"
++else
++	rmx1901_handoff_event HANDOFF_MARKER_MISSING "path=${RMX1901_HANDOFF_LOG}" || true
++	panic "RMX1901 handoff marker missing after /run move"
++fi
+ 
+ validate_init() {
+ 	run-init -n "${rootmnt}" "${1}"
+@@ -303,6 +327,7 @@
+ mount -n -o move /proc ${rootmnt}/proc
+ 
+ # Chain to real filesystem
++rmx1901_handoff_event RUN_INIT_EXEC "init=${init}" || panic "RMX1901 run-init event failure"
+ exec run-init ${drop_caps} ${rootmnt} ${init} "$@" <${rootmnt}/dev/console >${rootmnt}/dev/console 2>&1
+ echo "Something went badly wrong in the initramfs."
+ panic "Please file a bug on initramfs-tools."

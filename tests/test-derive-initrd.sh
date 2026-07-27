@@ -58,6 +58,10 @@ for tool in e2fsck resize2fs dumpe2fs; do
 done
 [ -f "$DERIVED_EXTRACTED/scripts/halium-userdata" ] || fail "safe policy missing from derived initrd"
 [ -f "$DERIVED_EXTRACTED/scripts/halium-rmx1901-debug" ] || fail "diagnostic policy missing from derived initrd"
+for stage in DEV_MOVE_BEGIN DEV_MOVE_DONE CONSOLE_OPEN_OK CONSOLE_OPEN_FAILED \
+  RUN_MOVE_BEGIN RUN_MOVE_DONE HANDOFF_MARKER_VISIBLE HANDOFF_MARKER_MISSING RUN_INIT_EXEC; do
+  grep -Fq "$stage" "$DERIVED_EXTRACTED/init" || fail "base init event is missing: $stage"
+done
 HALIUM_POLICY_UNDER_TEST="$DERIVED_EXTRACTED/scripts/halium-userdata" \
 	/bin/sh "$PROJECT_ROOT/tests/test-safe-userdata.sh" >/dev/null || fail "packed policy behavior failed"
 RMX1901_DEBUG_POLICY_UNDER_TEST="$DERIVED_EXTRACTED/scripts/halium-rmx1901-debug" \
@@ -68,6 +72,7 @@ ADD scripts/halium-userdata
 DELETE sbin/dumpe2fs
 DELETE sbin/e2fsck
 DELETE sbin/resize2fs
+REPLACE init
 REPLACE scripts/halium'
 [ "$(cat "$OUT_ONE/initrd.delta.manifest")" = "$expected_delta" ] || fail "archive changed paths outside allowlist"
 

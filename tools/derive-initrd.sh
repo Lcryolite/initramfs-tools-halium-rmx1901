@@ -9,6 +9,7 @@ OUTPUT_DIRECTORY=${2:?usage: derive-initrd.sh BASE_IMAGE OUTPUT_DIRECTORY}
 PINNED_BASE_SHA=0bbac4577f3567aec935c958216de5d30c7355452ca56248d6728f4f2634bdb6
 FIXED_SOURCE_DATE_EPOCH=1673963166
 ARTIFACT_NAME=initrd.img-touch-arm64-rmx1901-safe
+BASE_INIT_PATCH=$PROJECT_ROOT/patches/0001-rmx1901-record-base-init-handoff-events.patch
 BASE_IMAGE=$(readlink -f "$BASE_IMAGE")
 
 actual_base_sha=$(sha256sum "$BASE_IMAGE" | awk '{print $1}')
@@ -31,6 +32,15 @@ extract_initrd "$BASE_IMAGE" "$UNPACKED"
 
 manifest_tree "$UNPACKED" "$OUTPUT_DIRECTORY/initrd.before.manifest"
 
+test -f "$BASE_INIT_PATCH" || {
+	printf 'RMX1901 base-init handoff patch is missing: %s\n' "$BASE_INIT_PATCH" >&2
+	exit 1
+}
+(cd "$UNPACKED" && patch --batch --fuzz=0 -p1 <"$BASE_INIT_PATCH") || {
+	printf 'RMX1901 base-init handoff patch did not apply to the pinned base\n' >&2
+	exit 1
+}
+
 install -m 0644 "$PROJECT_ROOT/scripts/halium" "$UNPACKED/scripts/halium"
 install -m 0644 "$PROJECT_ROOT/scripts/halium-userdata" "$UNPACKED/scripts/halium-userdata"
 install -m 0644 "$PROJECT_ROOT/scripts/halium-rmx1901-debug" "$UNPACKED/scripts/halium-rmx1901-debug"
@@ -44,6 +54,7 @@ rm -f \
 # children, otherwise identical inputs produce different output bytes.
 find "$UNPACKED" -type d -exec touch -h -d "@$FIXED_SOURCE_DATE_EPOCH" {} +
 touch -h -d "@$FIXED_SOURCE_DATE_EPOCH" \
+	"$UNPACKED/init" \
 	"$UNPACKED/scripts/halium" \
 	"$UNPACKED/scripts/halium-userdata" \
 	"$UNPACKED/scripts/halium-rmx1901-debug"
@@ -59,6 +70,7 @@ ADD scripts/halium-userdata
 DELETE sbin/dumpe2fs
 DELETE sbin/e2fsck
 DELETE sbin/resize2fs
+REPLACE init
 REPLACE scripts/halium'
 actual_delta=$(cat "$OUTPUT_DIRECTORY/initrd.delta.manifest")
 if [ "$actual_delta" != "$expected_delta" ]; then
