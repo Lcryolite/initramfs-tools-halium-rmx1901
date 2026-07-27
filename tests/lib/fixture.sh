@@ -8,17 +8,19 @@ fixture_start() {
 	rm -rf "$FIXTURE_ROOT"
 	mkdir -p "$FAKE_BIN"
 	: >"$CALL_LOG"
-	for command_name in blkid mount umount is-block has-payload log panic; do
+	for command_name in blkid mount umount is-block has-payload canonical-path log panic; do
 		ln -s "$PROJECT_ROOT/tests/helpers/fake-command.sh" "$FAKE_BIN/$command_name"
 	done
 	export CALL_LOG
 	export BLKID_OUTPUT=ext4 IS_BLOCK=1 HAS_PAYLOAD=1
+	export CANONICAL_PATH=/dev/block/sda11
 	export FAIL_RO=0 FAIL_RW=0 FAIL_UMOUNT=0
 	# Poison the old environment injection interface. Production code must use
 	# fixed wrapper functions, which this test shell overrides below.
 	export HALIUM_BLKID=/bin/false HALIUM_MOUNT=/bin/false HALIUM_UMOUNT=/bin/false
 	export HALIUM_IS_BLOCK=/bin/false HALIUM_HAS_PAYLOAD=/bin/false
 	export HALIUM_LOG=/bin/false HALIUM_PANIC=/bin/false
+	rmx1901_systempart=
 }
 
 fixture_stop() {

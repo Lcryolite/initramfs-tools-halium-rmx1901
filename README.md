@@ -8,9 +8,19 @@ This local fork replaces the legacy userdata path with a fail-closed policy:
 
 - accept only an unambiguous `ext4` or `f2fs` result from `blkid`;
 - probe ext4 with `ro,noload` and f2fs with `ro` before any writable mount;
-- require an RMX1901 rootfs payload while userdata is still read-only;
+- require an RMX1901 rootfs payload while userdata is still read-only for the
+  legacy userdata-image layout;
+- allow payload-free userdata only when the kernel command line contains one
+  `systempart=/dev/block/by-name/system`, that alias resolves exactly to the
+  RMX1901 system block device `/dev/block/sda11`, and the target is a block
+  device;
 - never run filesystem repair, resize, or format utilities at boot;
 - attempt a read-only rescue mount and enter Halium panic if writable mounting fails.
+
+For both layouts, userdata must first identify unambiguously as ext4 or f2fs,
+mount read-only with the filesystem-specific safe options, and unmount cleanly
+before the first read-write attempt. Other, malformed, duplicate, dynamic, or
+non-canonical `systempart` values fail closed before userdata is mounted.
 
 Run the behavior fixtures with:
 

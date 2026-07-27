@@ -11,6 +11,7 @@ halium_mount() { "$FAKE_BIN/mount" "$@"; }
 halium_umount() { "$FAKE_BIN/umount" "$@"; }
 halium_is_block() { "$FAKE_BIN/is-block" "$@"; }
 halium_has_payload() { "$FAKE_BIN/has-payload" "$@"; }
+halium_canonical_path() { "$FAKE_BIN/canonical-path" "$@"; }
 halium_log() { "$FAKE_BIN/log" "$@"; }
 halium_policy_panic() { "$FAKE_BIN/panic" "$@"; }
 
@@ -130,6 +131,101 @@ log|userdata_mount=readonly-rescue type=ext4 path=$DEVICE
 panic|No RMX1901 rootfs payload found on userdata" "missing payload reached writable mount"
 }
 
+test_valid_rmx1901_systempart_allows_userdata_without_legacy_payload() {
+	HAS_PAYLOAD=0; export HAS_PAYLOAD
+	assert_success validate_rmx1901_systempart_cmdline \
+		'console=tty0 systempart=/dev/block/by-name/system androidboot.mode=normal' || return 1
+	assert_success safe_mount_userdata "$DEVICE" "$MOUNTPOINT" || return 1
+	assert_eq "$(cat "$CALL_LOG")" "canonical-path|/dev/block/by-name/system
+is-block|/dev/block/sda11
+is-block|$DEVICE
+blkid|-s|TYPE|-o|value|$DEVICE
+mount|-t|ext4|-o|ro,noload|$DEVICE|$MOUNTPOINT
+has-payload|$MOUNTPOINT
+log|userdata_payload=system-partition path=/dev/block/by-name/system
+umount|$MOUNTPOINT
+mount|-t|ext4|-o|rw,noatime|$DEVICE|$MOUNTPOINT
+log|userdata_mount=readwrite type=ext4 path=$DEVICE" "validated system partition did not allow payload-free userdata safely"
+}
+
+test_no_systempart_keeps_legacy_payload_requirement() {
+	HAS_PAYLOAD=0; export HAS_PAYLOAD
+	assert_success validate_rmx1901_systempart_cmdline 'console=tty0 androidboot.mode=normal' || return 1
+	assert_failure safe_mount_userdata "$DEVICE" "$MOUNTPOINT" || return 1
+	assert_eq "$(cat "$CALL_LOG")" "is-block|$DEVICE
+blkid|-s|TYPE|-o|value|$DEVICE
+mount|-t|ext4|-o|ro,noload|$DEVICE|$MOUNTPOINT
+has-payload|$MOUNTPOINT
+log|userdata_mount=readonly-rescue type=ext4 path=$DEVICE
+panic|No RMX1901 rootfs payload found on userdata" "legacy payload requirement was weakened without systempart"
+}
+
+test_unset_systempart_state_keeps_legacy_payload_requirement() {
+	HAS_PAYLOAD=0; export HAS_PAYLOAD
+	unset rmx1901_systempart
+	assert_failure safe_mount_userdata "$DEVICE" "$MOUNTPOINT" || return 1
+	assert_eq "$(cat "$CALL_LOG")" "is-block|$DEVICE
+blkid|-s|TYPE|-o|value|$DEVICE
+mount|-t|ext4|-o|ro,noload|$DEVICE|$MOUNTPOINT
+has-payload|$MOUNTPOINT
+log|userdata_mount=readonly-rescue type=ext4 path=$DEVICE
+panic|No RMX1901 rootfs payload found on userdata" "unset validation state did not fail closed to legacy policy"
+}
+
+assert_systempart_rejected() {
+	cmdline=$1
+	expected_calls=$2
+	assert_failure validate_rmx1901_systempart_cmdline "$cmdline" || return 1
+	assert_eq "$(cat "$CALL_LOG")" "$expected_calls" "unsafe systempart was accepted"
+}
+
+test_raw_canonical_system_path_is_not_an_allowed_cmdline_alias() {
+	assert_systempart_rejected \
+		'systempart=/dev/block/sda11' \
+		'panic|Unsafe RMX1901 systempart command-line value'
+}
+
+test_dynamic_partition_path_is_rejected() {
+	assert_systempart_rejected \
+		'systempart=/dev/block/mapper/system' \
+		'panic|Unsafe RMX1901 systempart command-line value'
+}
+
+test_other_by_name_partition_is_rejected() {
+	assert_systempart_rejected \
+		'systempart=/dev/block/by-name/vendor' \
+		'panic|Unsafe RMX1901 systempart command-line value'
+}
+
+test_system_alias_resolving_elsewhere_is_rejected() {
+	CANONICAL_PATH=/dev/block/sde15; export CANONICAL_PATH
+	assert_systempart_rejected \
+		'systempart=/dev/block/by-name/system' \
+		"canonical-path|/dev/block/by-name/system
+panic|RMX1901 systempart canonical target mismatch"
+}
+
+test_non_block_canonical_system_target_is_rejected() {
+	IS_BLOCK=0; export IS_BLOCK
+	assert_systempart_rejected \
+		'systempart=/dev/block/by-name/system' \
+		"canonical-path|/dev/block/by-name/system
+is-block|/dev/block/sda11
+panic|RMX1901 systempart canonical target is not a block device"
+}
+
+test_duplicate_systempart_arguments_are_rejected() {
+	assert_systempart_rejected \
+		'systempart=/dev/block/by-name/system systempart=/dev/block/by-name/system' \
+		'panic|Multiple systempart command-line values'
+}
+
+test_malformed_systempart_value_is_rejected_without_path_resolution() {
+	assert_systempart_rejected \
+		'systempart=/dev/block/by-name/system;reboot' \
+		'panic|Unsafe RMX1901 systempart command-line value'
+}
+
 for test_case in \
 	test_ext4_uses_readonly_probe_before_writable_mount \
 	test_f2fs_uses_f2fs_readonly_probe_before_writable_mount \
@@ -140,7 +236,17 @@ for test_case in \
 	test_readonly_probe_failure_panics_without_writable_mount \
 	test_unmount_failure_panics_without_writable_mount \
 	test_writable_failure_remounts_readonly_then_panics \
-	test_missing_payload_stays_readonly_and_panics
+	test_missing_payload_stays_readonly_and_panics \
+	test_valid_rmx1901_systempart_allows_userdata_without_legacy_payload \
+	test_no_systempart_keeps_legacy_payload_requirement \
+	test_unset_systempart_state_keeps_legacy_payload_requirement \
+	test_raw_canonical_system_path_is_not_an_allowed_cmdline_alias \
+	test_dynamic_partition_path_is_rejected \
+	test_other_by_name_partition_is_rejected \
+	test_system_alias_resolving_elsewhere_is_rejected \
+	test_non_block_canonical_system_target_is_rejected \
+	test_duplicate_systempart_arguments_are_rejected \
+	test_malformed_systempart_value_is_rejected_without_path_resolution
 do
 	run_test "$test_case"
 done

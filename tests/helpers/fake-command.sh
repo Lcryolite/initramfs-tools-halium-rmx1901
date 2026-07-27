@@ -39,6 +39,10 @@ case "$name" in
 		record "$@"
 		[ "${HAS_PAYLOAD-1}" = 1 ]
 		;;
+	canonical-path)
+		record "$@"
+		printf '%s\n' "${CANONICAL_PATH-}"
+		;;
 	log|panic)
 		record "$@"
 		;;

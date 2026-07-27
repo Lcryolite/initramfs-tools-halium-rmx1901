@@ -441,20 +441,14 @@ mountroot() {
 		halium_panic "Couldn't find data partition."
 	fi
 
+	if ! validate_rmx1901_systempart_cmdline "$(cat /proc/cmdline)"; then
+		return 1
+	fi
+	_syspart=$rmx1901_systempart
+
 	tell_kmsg "probing and mounting userdata with the RMX1901 safety policy"
 	if ! safe_mount_userdata "$path" /tmpmnt; then
 		return 1
-	fi
-
-	# Set $_syspart if it is specified as systempart= on the command line
-	if grep -q systempart= /proc/cmdline; then
-		for x in $(cat /proc/cmdline); do
-			case ${x} in
-			systempart=*)
-				_syspart=${x#*=}
-				;;
-			esac
-		done
 	fi
 
 	identify_file_layout
