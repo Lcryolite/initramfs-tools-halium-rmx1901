@@ -60,7 +60,7 @@ validate_rmx1901_systempart_cmdline() {
 	if [ "$systempart_count" -eq 0 ]; then
 		return 0
 	fi
-	if [ "$systempart_candidate" != /dev/block/by-name/system ]; then
+	if [ "$systempart_candidate" != /dev/disk/by-partlabel/system ]; then
 		halium_policy_panic "Unsafe RMX1901 systempart command-line value"
 		return 1
 	fi
@@ -82,7 +82,7 @@ validate_rmx1901_systempart_cmdline() {
 
 safe_mount_rmx1901_systempart() {
 	systempart_mountpoint=$1
-	if [ "${rmx1901_systempart-}" != /dev/block/by-name/system ] ||
+	if [ "${rmx1901_systempart-}" != /dev/disk/by-partlabel/system ] ||
 		[ "${rmx1901_systempart_canonical-}" != /dev/block/sda11 ]; then
 		halium_policy_panic "RMX1901 systempart was not validated"
 		return 1
@@ -133,7 +133,7 @@ safe_mount_userdata() {
 	fi
 
 	if ! halium_has_payload "$userdata_mountpoint"; then
-		if [ "${rmx1901_systempart-}" = /dev/block/by-name/system ]; then
+		if [ "${rmx1901_systempart-}" = /dev/disk/by-partlabel/system ]; then
 			halium_log "userdata_payload=system-partition path=${rmx1901_systempart-}"
 		else
 			halium_log "userdata_mount=readonly-rescue type=$userdata_type path=$userdata_device"

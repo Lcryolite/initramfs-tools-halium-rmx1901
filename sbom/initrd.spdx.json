@@ -3,7 +3,7 @@
   "dataLicense": "CC0-1.0",
   "SPDXID": "SPDXRef-DOCUMENT",
   "name": "RMX1901-safe-Halium-initrd",
-  "documentNamespace": "https://github.com/Lcryolite/initramfs-tools-halium-rmx1901/spdx/ac74c1124cc5cab7b9b42c9a06ca8ff5e14fc2d6e0d7237deb42da8a6788ceca",
+  "documentNamespace": "https://github.com/Lcryolite/initramfs-tools-halium-rmx1901/spdx/5acabc4589df236b9bb686500dcabcbb4e44e4778d332e5daa68617037a98934",
   "creationInfo": {
     "created": "2023-01-17T13:46:06Z",
     "creators": ["Tool: tools/derive-initrd.sh"]
@@ -14,9 +14,9 @@
     "versionInfo": "e6a91ad5-rmx1901-safe",
     "downloadLocation": "NOASSERTION",
     "filesAnalyzed": false,
-    "checksums": [{"algorithm": "SHA256", "checksumValue": "ac74c1124cc5cab7b9b42c9a06ca8ff5e14fc2d6e0d7237deb42da8a6788ceca"}],
+    "checksums": [{"algorithm": "SHA256", "checksumValue": "5acabc4589df236b9bb686500dcabcbb4e44e4778d332e5daa68617037a98934"}],
     "copyrightText": "NOASSERTION",
-    "comment": "Derived from pinned base SHA256 0bbac4577f3567aec935c958216de5d30c7355452ca56248d6728f4f2634bdb6; size 3942246 bytes. See manifests and PROVENANCE.md."
+    "comment": "Derived from pinned base SHA256 0bbac4577f3567aec935c958216de5d30c7355452ca56248d6728f4f2634bdb6; size 3941303 bytes. See manifests and PROVENANCE.md."
   }],
   "relationships": [{
     "spdxElementId": "SPDXRef-DOCUMENT",

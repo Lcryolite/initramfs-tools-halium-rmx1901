@@ -17,6 +17,22 @@
 - Exit: `0`
 - Result: 10/10 named behavior fixtures passed.
 
+## System partition partlabel alias
+
+### RED
+
+- Date: 2026-07-27 (Asia/Shanghai)
+- Command: `/bin/sh tests/test-safe-userdata.sh`
+- Exit: `1`
+- Expected failures: the new `/dev/disk/by-partlabel/system` positive fixture was rejected by the old allowlist, while the dedicated legacy-alias fixture showed that `/dev/block/by-name/system` was still accepted.
+- Interpretation: the policy did not accept the alias actually created by the pinned initrd udev rules and retained an unusable legacy alias.
+
+### GREEN
+
+- Command: `/bin/sh tests/test-safe-userdata.sh`
+- Exit: `0`
+- Result: 24/24 named behavior fixtures passed, including partlabel acceptance, legacy-alias rejection, canonical `/dev/block/sda11` validation, pre-mount alias revalidation, and canonical-only mounting.
+
 ## Deterministic initrd derivation
 
 ### RED

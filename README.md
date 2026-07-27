@@ -11,9 +11,11 @@ This local fork replaces the legacy userdata path with a fail-closed policy:
 - require an RMX1901 rootfs payload while userdata is still read-only for the
   legacy userdata-image layout;
 - allow payload-free userdata only when the kernel command line contains one
-  `systempart=/dev/block/by-name/system`, that alias resolves exactly to the
+  `systempart=/dev/disk/by-partlabel/system`, that alias resolves exactly to the
   RMX1901 system block device `/dev/block/sda11`, and the target is a block
   device;
+- reject the legacy `/dev/block/by-name/system` alias because the pinned initrd
+  udev rules create `/dev/disk/by-partlabel/*`, not `/dev/block/by-name/*`;
 - retain the canonical system device, re-resolve and re-check the alias
   immediately before mounting, and mount the canonical device rather than the
   mutable alias;

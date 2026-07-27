@@ -25,12 +25,12 @@ The mutable release `target_commitish` is not used as a trust anchor. The fixed 
 
 ## Derived artifact
 
-- Path: `out/reviewed/initrd.img-touch-arm64-rmx1901-safe`
-- Size: `3,942,246` bytes
-- SHA-256: `ac74c1124cc5cab7b9b42c9a06ca8ff5e14fc2d6e0d7237deb42da8a6788ceca`
+- Path: `out/systempart-partlabel/initrd.img-touch-arm64-rmx1901-safe`
+- Size: `3,941,303` bytes
+- SHA-256: `5acabc4589df236b9bb686500dcabcbb4e44e4778d332e5daa68617037a98934`
 - Fixed build epoch: `1673963166` (`2023-01-17T13:46:06Z`)
-- SPDX document: `out/reviewed/initrd.spdx.json` and tracked copy `sbom/initrd.spdx.json`
-- Before/after/delta manifests: `out/reviewed/initrd.{before,after,delta}.manifest`
+- SPDX document: `out/systempart-partlabel/initrd.spdx.json` and tracked copy `sbom/initrd.spdx.json`
+- Before/after/delta manifests: `out/systempart-partlabel/initrd.{before,after,delta}.manifest`
 
 The content/mode delta is exactly:
 
@@ -56,6 +56,8 @@ All directory mtimes are normalized to the fixed build epoch. This metadata norm
 - Test shell: `/bin/sh` -> `/usr/bin/bash`; dash was unavailable
 
 Two independent derivations from the fixed base produced the same SHA-256. Cross-toolchain byte identity still depends on the listed cpio/gzip implementations; a digest-pinned builder image remains desirable before publishing externally.
+
+The RMX1901 system partition policy accepts only `systempart=/dev/disk/by-partlabel/system`, the alias created by the pinned initrd's udev rules. It must resolve to the fixed canonical block device `/dev/block/sda11` both during command-line validation and immediately before mount. The legacy `/dev/block/by-name/system` alias is explicitly rejected.
 
 The production builder hard-codes the base SHA and release epoch; inherited environment variables cannot replace either trust anchor. The independent auditor verifies the base SHA before extracting or comparing caller-provided manifests. gzip, cpio, find, sort, stat, and hashing stages are separately checked so an intermediate failure cannot be hidden by the final process in a shell pipeline.
 
