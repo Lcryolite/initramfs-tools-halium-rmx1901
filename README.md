@@ -7,7 +7,7 @@ Hooks and configuration to build a Halium initramfs
 This local fork replaces the legacy userdata path with a fail-closed policy:
 
 - accept only an unambiguous `ext4` or `f2fs` result from `blkid`;
-- probe ext4 with `ro,noload` and f2fs with `ro` before any writable mount;
+- probe ext4 with `ro,noload` and f2fs with `ro,norecovery` before any writable mount;
 - require an RMX1901 rootfs payload while userdata is still read-only for the
   legacy userdata-image layout;
 - allow payload-free userdata only when the kernel command line contains one
@@ -39,11 +39,20 @@ starts an independently chrooted, public-key-only SSH server after `/dev` and
 logs live only in `/run`; it does not create a userdata marker. Diagnostic
 setup failure is logged but never aborts the normal boot path.
 
+The M1 source event chronology is deliberately causal:
+`CMDLINE_PARSED`, `ROOT_DEVICE_RESOLVED`, `USERDATA_PROBED`, then
+`ROOTFS_MOUNTED`. Rootfs selection depends on completing the safe userdata
+probe first. The authoritative specification now states this order explicitly;
+`tools/check-m1-spec-order.sh` compares it with the tracked source-order marker
+and blocks M1 evidence if either side diverges.
+
 Run the behavior fixtures with:
 
 ```sh
 /bin/sh tests/test-safe-userdata.sh
+/bin/sh tests/test-handoff-semantics.sh
 /bin/sh tests/test-debug-rndis.sh
+/bin/sh tests/test-spec-order-gate.sh
 /bin/sh tests/test-derive-initrd.sh
 ```
 
@@ -60,7 +69,10 @@ Derive the audited arm64 artifact from the pinned official base asset:
 
 The builder rejects a base whose SHA-256 is not
 `0bbac4577f3567aec935c958216de5d30c7355452ca56248d6728f4f2634bdb6`.
-It does not stage, embed, or flash its output.
+The builder snapshots the base through an `O_NOFOLLOW` regular-file descriptor
+before hashing or extracting it. The auditor applies the same private-snapshot
+rule to all four inputs: base, derived image, and both recorded manifests. It
+does not stage, embed, or flash its output.
 
 ## Build an initramfs image
 

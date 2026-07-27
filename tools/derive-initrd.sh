@@ -10,12 +10,13 @@ PINNED_BASE_SHA=0bbac4577f3567aec935c958216de5d30c7355452ca56248d6728f4f2634bdb6
 FIXED_SOURCE_DATE_EPOCH=1673963166
 ARTIFACT_NAME=initrd.img-touch-arm64-rmx1901-safe
 BASE_INIT_PATCH=$PROJECT_ROOT/patches/0001-rmx1901-record-base-init-handoff-events.patch
-BASE_IMAGE=$(readlink -f "$BASE_IMAGE")
+BASE_SNAPSHOT_TOOL=$PROJECT_ROOT/tools/snapshot-regular-file.py
+M1_SPEC_ORDER_GATE=$PROJECT_ROOT/tools/check-m1-spec-order.sh
+M1_SPEC_ORDER_SPEC=$PROJECT_ROOT/config/m1-event-order-spec.md
 
-actual_base_sha=$(sha256sum "$BASE_IMAGE" | awk '{print $1}')
-if [ "$actual_base_sha" != "$PINNED_BASE_SHA" ]; then
-	printf 'base initrd SHA-256 mismatch: expected %s, got %s\n' "$PINNED_BASE_SHA" "$actual_base_sha" >&2
-	exit 1
+if ! "$M1_SPEC_ORDER_GATE" "$M1_SPEC_ORDER_SPEC"; then
+	printf 'M1 source/spec order gate failed\n' >&2
+	exit 20
 fi
 
 if [ -e "$OUTPUT_DIRECTORY" ] && [ -n "$(find "$OUTPUT_DIRECTORY" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]; then
@@ -27,8 +28,15 @@ OUTPUT_DIRECTORY=$(CDPATH= cd -- "$OUTPUT_DIRECTORY" && pwd)
 
 BUILD_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/rmx1901-initrd-build.XXXXXX")
 trap 'rm -rf "$BUILD_ROOT"' EXIT HUP INT TERM
+BASE_SNAPSHOT=$BUILD_ROOT/base.snapshot
+"$BASE_SNAPSHOT_TOOL" "$BASE_IMAGE" "$BASE_SNAPSHOT"
+actual_base_sha=$(sha256sum "$BASE_SNAPSHOT" | awk '{print $1}')
+if [ "$actual_base_sha" != "$PINNED_BASE_SHA" ]; then
+	printf 'base initrd SHA-256 mismatch: expected %s, got %s\n' "$PINNED_BASE_SHA" "$actual_base_sha" >&2
+	exit 1
+fi
 UNPACKED=$BUILD_ROOT/unpacked
-extract_initrd "$BASE_IMAGE" "$UNPACKED"
+extract_initrd "$BASE_SNAPSHOT" "$UNPACKED"
 
 manifest_tree "$UNPACKED" "$OUTPUT_DIRECTORY/initrd.before.manifest"
 

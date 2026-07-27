@@ -448,9 +448,8 @@ mountroot() {
 	# Make sure the device has been created by udev before we try to mount
 	udevadm settle
 	cmdline=$(cat /proc/cmdline)
-	case " $cmdline " in *" console="*) rmx1901_console_token=present ;; *) rmx1901_console_token=missing ;; esac
-	case " $cmdline " in *" systempart="*) rmx1901_systempart_token=present ;; *) rmx1901_systempart_token=missing ;; esac
-	rmx1901_handoff_event CMDLINE_PARSED "systempart=$rmx1901_systempart_token console=$rmx1901_console_token" || return 1
+	rmx1901_collect_cmdline_facts "$cmdline" || return 1
+	rmx1901_handoff_event CMDLINE_PARSED "$rmx1901_cmdline_facts" || return 1
 
 	# find the right partition
 	for partname in $partlist; do
@@ -493,15 +492,24 @@ mountroot() {
 	fi
 	_syspart=$rmx1901_systempart_canonical
 	path_canonical=$(halium_canonical_path "$path" 2>/dev/null || true)
-	path_major_minor=$(halium_major_minor "$path_canonical" 2>/dev/null || true)
-	syspart_major_minor=$(halium_major_minor "$_syspart" 2>/dev/null || true)
-	rmx1901_handoff_event ROOT_DEVICE_RESOLVED "userdata=$path_canonical userdata_mm=$path_major_minor system=${_syspart:-none} system_mm=${syspart_major_minor:-none}" || return 1
+	if [ -n "$_syspart" ]; then
+		rmx1901_root_device_input=$_syspart
+		rmx1901_system_device_input=$_syspart
+	else
+		rmx1901_root_device_input=$path_canonical
+		rmx1901_system_device_input=none
+	fi
+	if ! rmx1901_collect_root_device_facts "$rmx1901_root_device_input" "$rmx1901_system_device_input" "$path_canonical"; then
+		halium_panic "Could not measure RMX1901 root device identities"
+		return 1
+	fi
+	rmx1901_handoff_event ROOT_DEVICE_RESOLVED "$rmx1901_root_device_facts" || return 1
 
 	tell_kmsg "probing and mounting userdata with the RMX1901 safety policy"
 	if ! safe_mount_userdata "$path" /tmpmnt; then
 		return 1
 	fi
-	rmx1901_handoff_event USERDATA_PROBED "path=$path_canonical mode=readonly" || return 1
+	rmx1901_handoff_event USERDATA_PROBED "$rmx1901_userdata_probe_facts" || return 1
 
 	identify_file_layout
 
@@ -552,8 +560,15 @@ mountroot() {
 		mount -o remount,ro /halium-system
 		mountroot_status="$?"
 	fi
-	rmx1901_rootfs_mount=$(awk '$2 == "/halium-system" { print "source=" $1 " fstype=" $3 " options=" $4; exit }' /proc/mounts)
-	rmx1901_handoff_event ROOTFS_MOUNTED "requested_source=${rmx1901_rootfs_source:-unknown} ${rmx1901_rootfs_mount:-mountinfo=missing}" || return 1
+	if [ "$mountroot_status" -ne 0 ]; then
+		halium_panic "Could not set RMX1901 rootfs mount mode"
+		return 1
+	fi
+	if ! rmx1901_collect_rootfs_mount_facts /halium-system "${rmx1901_rootfs_source:-unknown}"; then
+		halium_panic "Could not measure mounted RMX1901 rootfs"
+		return 1
+	fi
+	rmx1901_handoff_event ROOTFS_MOUNTED "$rmx1901_rootfs_mount_facts" || return 1
 
 	# Mount the android system partition to a temporary location
 	MOUNT="ro"

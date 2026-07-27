@@ -44,26 +44,300 @@ halium_dmesg() {
 	dmesg
 }
 
-validate_rmx1901_userdata() {
+halium_mount_table() {
+	cat /proc/mounts
+}
+
+halium_mountinfo() {
+	cat /proc/self/mountinfo
+}
+
+# The mountinfo major:minor names the mounted superblock, rather than a path
+# which could be exchanged after mount(2).  Its size is therefore read from
+# the corresponding sysfs device identity, never by re-resolving /dev/sda*.
+halium_block_sectors_by_mountinfo_mm() {
+	case "$1" in
+		*[!0-9:]* | *:*:*) return 1 ;;
+		[0-9]*:[0-9]*) cat "/sys/dev/block/$1/size" ;;
+		*) return 1 ;;
+	esac
+}
+
+rmx1901_cmdline_token_status() {
+	rmx1901_exact_count=$1
+	rmx1901_named_count=$2
+	if [ "$rmx1901_named_count" -gt 1 ]; then
+		printf '%s\n' duplicate
+	elif [ "$rmx1901_exact_count" -eq 1 ]; then
+		printf '%s\n' valid
+	elif [ "$rmx1901_named_count" -gt 0 ]; then
+		printf '%s\n' invalid
+	else
+		printf '%s\n' missing
+	fi
+}
+
+rmx1901_collect_cmdline_facts() {
+	rmx1901_cmdline=$1
+	rmx1901_systempart_exact=0
+	rmx1901_systempart_named=0
+	rmx1901_cgroup_exact=0
+	rmx1901_cgroup_named=0
+	rmx1901_console_exact=0
+	rmx1901_serial_console_exact=0
+	rmx1901_console_named=0
+	rmx1901_diagnostic_exact=0
+	rmx1901_diagnostic_named=0
+	case $- in
+		*f*) rmx1901_restore_glob=0 ;;
+		*) set -f; rmx1901_restore_glob=1 ;;
+	esac
+	for rmx1901_cmdline_word in $rmx1901_cmdline; do
+		case "$rmx1901_cmdline_word" in
+			systempart=*)
+				rmx1901_systempart_named=$((rmx1901_systempart_named + 1))
+				[ "$rmx1901_cmdline_word" != systempart=/dev/disk/by-partlabel/system ] ||
+					rmx1901_systempart_exact=$((rmx1901_systempart_exact + 1))
+				;;
+			systemd.unified_cgroup_hierarchy=*)
+				rmx1901_cgroup_named=$((rmx1901_cgroup_named + 1))
+				[ "$rmx1901_cmdline_word" != systemd.unified_cgroup_hierarchy=0 ] ||
+					rmx1901_cgroup_exact=$((rmx1901_cgroup_exact + 1))
+				;;
+			console=*)
+				rmx1901_console_named=$((rmx1901_console_named + 1))
+				[ "$rmx1901_cmdline_word" != console=tty0 ] ||
+					rmx1901_console_exact=$((rmx1901_console_exact + 1))
+				[ "$rmx1901_cmdline_word" != console=ttyMSM0,115200n8 ] ||
+					rmx1901_serial_console_exact=$((rmx1901_serial_console_exact + 1))
+				;;
+			rmx1901.debug_rndis=*)
+				rmx1901_diagnostic_named=$((rmx1901_diagnostic_named + 1))
+				[ "$rmx1901_cmdline_word" != rmx1901.debug_rndis=1 ] ||
+					rmx1901_diagnostic_exact=$((rmx1901_diagnostic_exact + 1))
+				;;
+		esac
+	done
+	if [ "$rmx1901_restore_glob" -eq 1 ]; then
+		set +f
+	fi
+	rmx1901_systempart_status=$(rmx1901_cmdline_token_status "$rmx1901_systempart_exact" "$rmx1901_systempart_named") || return 1
+	rmx1901_cgroup_status=$(rmx1901_cmdline_token_status "$rmx1901_cgroup_exact" "$rmx1901_cgroup_named") || return 1
+	rmx1901_console_unknown=$((rmx1901_console_named - rmx1901_console_exact - rmx1901_serial_console_exact))
+	if [ "$rmx1901_console_exact" -gt 1 ] || [ "$rmx1901_serial_console_exact" -gt 1 ] ||
+		[ "$rmx1901_console_unknown" -gt 0 ]; then
+		rmx1901_console_status=duplicate
+	elif [ "$rmx1901_console_exact" -eq 1 ] && [ "$rmx1901_serial_console_exact" -eq 1 ]; then
+		rmx1901_console_status=valid
+	elif [ "$rmx1901_console_named" -eq 0 ]; then
+		rmx1901_console_status=missing
+	else
+		rmx1901_console_status=missing
+	fi
+	rmx1901_diagnostic_status=$(rmx1901_cmdline_token_status "$rmx1901_diagnostic_exact" "$rmx1901_diagnostic_named") || return 1
+	rmx1901_cmdline_facts="systempart=$rmx1901_systempart_status cgroup=$rmx1901_cgroup_status console=$rmx1901_console_status diagnostic_rndis=$rmx1901_diagnostic_status"
+}
+
+rmx1901_measure_expected_block() {
+	rmx1901_measure_input=$1
+	rmx1901_measure_expected_path=$2
+	rmx1901_measure_expected_mm=$3
+	rmx1901_measure_expected_size=$4
+	rmx1901_measured_path=$(halium_canonical_path "$rmx1901_measure_input" 2>/dev/null) || return 1
+	[ "$rmx1901_measured_path" = "$rmx1901_measure_expected_path" ] || return 1
+	halium_is_block "$rmx1901_measured_path" || return 1
+	rmx1901_measured_mm=$(halium_major_minor "$rmx1901_measured_path" 2>/dev/null) || return 1
+	[ "$rmx1901_measured_mm" = "$rmx1901_measure_expected_mm" ] || return 1
+	rmx1901_measured_size=$(halium_block_size "$rmx1901_measured_path" 2>/dev/null) || return 1
+	[ "$rmx1901_measured_size" = "$rmx1901_measure_expected_size" ] || return 1
+}
+
+rmx1901_collect_root_device_facts() {
+	rmx1901_measure_expected_block "$1" /dev/sda11 8:b 5213519872 || return 1
+	rmx1901_root_canonical=$rmx1901_measured_path
+	rmx1901_root_mm=$rmx1901_measured_mm
+	rmx1901_measure_expected_block "$2" /dev/sda11 8:b 5213519872 || return 1
+	rmx1901_system_canonical=$rmx1901_measured_path
+	rmx1901_system_mm=$rmx1901_measured_mm
+	rmx1901_measure_expected_block "$3" /dev/sda13 8:d 53862150144 || return 1
+	rmx1901_userdata_evidence_canonical=$rmx1901_measured_path
+	rmx1901_userdata_evidence_mm=$rmx1901_measured_mm
+	rmx1901_root_device_facts="root=$rmx1901_root_canonical root_mm=$rmx1901_root_mm system=$rmx1901_system_canonical system_mm=$rmx1901_system_mm userdata=$rmx1901_userdata_evidence_canonical userdata_mm=$rmx1901_userdata_evidence_mm"
+}
+
+rmx1901_collect_unique_mount_record() {
+	rmx1901_mount_target=$1
+	rmx1901_mounts=$(halium_mount_table 2>/dev/null) || return 1
+	rmx1901_mount_record=$(printf '%s\n' "$rmx1901_mounts" | awk -v target="$rmx1901_mount_target" '
+		$2 == target { count++; source = $1; fstype = $3; options = $4 }
+		END {
+			if (count != 1 || source == "" || fstype == "" || options == "") exit 1
+			print source, fstype, options
+		}
+	') || return 1
+	case $- in
+		*f*) rmx1901_mount_restore_glob=0 ;;
+		*) set -f; rmx1901_mount_restore_glob=1 ;;
+	esac
+	set -- $rmx1901_mount_record
+	if [ "$rmx1901_mount_restore_glob" -eq 1 ]; then
+		set +f
+	fi
+	[ "$#" -eq 3 ] || return 1
+	rmx1901_mount_source=$1
+	rmx1901_mount_fstype=$2
+	rmx1901_mount_options=$3
+}
+
+rmx1901_collect_unique_mountinfo_record() {
+	rmx1901_mountinfo_target=$1
+	rmx1901_mountinfo=$(halium_mountinfo 2>/dev/null) || return 1
+	rmx1901_mountinfo_record=$(printf '%s\n' "$rmx1901_mountinfo" | awk -v target="$rmx1901_mountinfo_target" '
+		$5 == target {
+			count++
+			separator = index($0, " - ")
+			if (separator == 0) malformed = 1
+			else {
+				before = substr($0, 1, separator - 1)
+				after = substr($0, separator + 3)
+				before_count = split(before, before_fields, " ")
+				after_count = split(after, after_fields, " ")
+				if (before_count < 6 || after_count != 3) malformed = 1
+				else {
+					major_minor = before_fields[3]
+					mount_options = before_fields[6]
+					fstype = after_fields[1]
+					source = after_fields[2]
+					super_options = after_fields[3]
+				}
+			}
+		}
+		END {
+			if (count != 1 || malformed || major_minor == "" || fstype == "" || source == "" || mount_options == "" || super_options == "") exit 1
+			print major_minor, fstype, source, mount_options, super_options
+		}
+	') || return 1
+	case $- in
+		*f*) rmx1901_mountinfo_restore_glob=0 ;;
+		*) set -f; rmx1901_mountinfo_restore_glob=1 ;;
+	esac
+	set -- $rmx1901_mountinfo_record
+	if [ "$rmx1901_mountinfo_restore_glob" -eq 1 ]; then
+		set +f
+	fi
+	[ "$#" -eq 5 ] || return 1
+	rmx1901_mountinfo_mm=$1
+	rmx1901_mountinfo_fstype=$2
+	rmx1901_mountinfo_source=$3
+	rmx1901_mountinfo_options=$4
+	rmx1901_mountinfo_super_options=$5
+}
+
+rmx1901_validate_mounted_superblock() {
+	rmx1901_expected_mount_target=$1
+	rmx1901_expected_mount_source=$2
+	rmx1901_expected_mountinfo_mm=$3
+	rmx1901_expected_mount_size=$4
+	rmx1901_expected_mount_fstype=$5
+	rmx1901_collect_unique_mountinfo_record "$rmx1901_expected_mount_target" || return 1
+	[ "$rmx1901_mountinfo_source" = "$rmx1901_expected_mount_source" ] || return 1
+	[ "$rmx1901_mountinfo_mm" = "$rmx1901_expected_mountinfo_mm" ] || return 1
+	[ "$rmx1901_mountinfo_fstype" = "$rmx1901_expected_mount_fstype" ] || return 1
+	rmx1901_mounted_sectors=$(halium_block_sectors_by_mountinfo_mm "$rmx1901_mountinfo_mm" 2>/dev/null) || return 1
+	case "$rmx1901_mounted_sectors" in
+		'' | *[!0-9]*) return 1 ;;
+	esac
+	rmx1901_mounted_size=$((rmx1901_mounted_sectors * 512))
+	[ "$rmx1901_mounted_size" = "$rmx1901_expected_mount_size" ] || return 1
+}
+
+rmx1901_mountinfo_option_present() {
+	case ",$1," in
+		*,"$2",*) return 0 ;;
+		*) return 1 ;;
+	esac
+}
+
+rmx1901_mounted_superblock_is_readonly() {
+	rmx1901_mountinfo_option_present "$rmx1901_mountinfo_options" ro || return 1
+	rmx1901_mountinfo_option_present "$rmx1901_mountinfo_options" rw && return 1
+	rmx1901_mountinfo_option_present "$rmx1901_mountinfo_super_options" rw && return 1
+	return 0
+}
+
+rmx1901_collect_rootfs_mount_facts() {
+	rmx1901_rootfs_target=$1
+	rmx1901_rootfs_requested_source=$2
+	rmx1901_collect_unique_mount_record "$rmx1901_rootfs_target" || return 1
+	rmx1901_rootfs_source=$rmx1901_mount_source
+	rmx1901_rootfs_fstype=$rmx1901_mount_fstype
+	rmx1901_rootfs_options=$(printf '%s' "$rmx1901_mount_options" | tr ',=' ':_') || return 1
+	[ -n "$rmx1901_rootfs_requested_source" ] && [ -n "$rmx1901_rootfs_options" ] || return 1
+	rmx1901_rootfs_mount_facts="requested_source=$rmx1901_rootfs_requested_source source=$rmx1901_rootfs_source fstype=$rmx1901_rootfs_fstype options=$rmx1901_rootfs_options"
+}
+
+check_rmx1901_userdata() {
 	rmx1901_userdata_canonical=$(halium_canonical_path "$1" 2>/dev/null) || rmx1901_userdata_canonical=
+	rmx1901_userdata_major_minor=
 
 	if [ "$rmx1901_userdata_canonical" != /dev/sda13 ]; then
-		halium_policy_panic "RMX1901 userdata canonical target mismatch"
+		rmx1901_userdata_validation_reason="RMX1901 userdata canonical target mismatch"
 		return 1
 	fi
 	if ! halium_is_block "$rmx1901_userdata_canonical"; then
-		halium_policy_panic "RMX1901 userdata canonical target is not a block device"
+		rmx1901_userdata_validation_reason="RMX1901 userdata canonical target is not a block device"
 		return 1
 	fi
-	if [ "$(halium_major_minor "$rmx1901_userdata_canonical" 2>/dev/null || true)" != 8:d ]; then
-		halium_policy_panic "RMX1901 userdata major:minor mismatch"
+	rmx1901_userdata_candidate_mm=$(halium_major_minor "$rmx1901_userdata_canonical" 2>/dev/null || true)
+	if [ "$rmx1901_userdata_candidate_mm" != 8:d ]; then
+		rmx1901_userdata_validation_reason="RMX1901 userdata major:minor mismatch"
 		return 1
 	fi
 	if [ "$(halium_block_size "$rmx1901_userdata_canonical" 2>/dev/null || true)" != 53862150144 ]; then
-		halium_policy_panic "RMX1901 userdata capacity mismatch"
+		rmx1901_userdata_validation_reason="RMX1901 userdata capacity mismatch"
 		return 1
 	fi
+	rmx1901_userdata_major_minor=$rmx1901_userdata_candidate_mm
 	return 0
+}
+
+validate_rmx1901_userdata() {
+	if ! check_rmx1901_userdata "$1"; then
+		halium_policy_panic "$rmx1901_userdata_validation_reason"
+		return 1
+	fi
+}
+
+rmx1901_validate_userdata_probe_mount() {
+	rmx1901_probe_mountpoint=$1
+	rmx1901_probe_expected_source=$2
+	rmx1901_probe_expected_fstype=$3
+	rmx1901_validate_mounted_superblock \
+		"$rmx1901_probe_mountpoint" "$rmx1901_probe_expected_source" \
+		8:13 53862150144 "$rmx1901_probe_expected_fstype" || return 1
+	rmx1901_mounted_superblock_is_readonly || return 1
+	case "$rmx1901_probe_expected_fstype" in
+		f2fs)
+			rmx1901_mountinfo_option_present "$rmx1901_mountinfo_options" norecovery ||
+				rmx1901_mountinfo_option_present "$rmx1901_mountinfo_super_options" norecovery || return 1
+			;;
+		ext4)
+			rmx1901_mountinfo_option_present "$rmx1901_mountinfo_options" noload ||
+				rmx1901_mountinfo_option_present "$rmx1901_mountinfo_super_options" noload || return 1
+			;;
+		*) return 1 ;;
+	esac
+}
+
+rmx1901_abort_mounted_userdata_probe() {
+	rmx1901_abort_mountpoint=$1
+	rmx1901_abort_reason=$2
+	if ! halium_umount "$rmx1901_abort_mountpoint"; then
+		halium_policy_panic "Could not unmount userdata read-only probe"
+		return 1
+	fi
+	halium_policy_panic "$rmx1901_abort_reason"
+	return 1
 }
 
 validate_rmx1901_systempart_cmdline() {
@@ -122,17 +396,31 @@ safe_mount_rmx1901_systempart() {
 		return 1
 	fi
 
-	systempart_current=$(halium_canonical_path "$rmx1901_systempart" 2>/dev/null) || systempart_current=
-	if [ "$systempart_current" != "$rmx1901_systempart_canonical" ]; then
-		halium_policy_panic "RMX1901 systempart changed before mount"
+	if ! rmx1901_measure_expected_block \
+		"$rmx1901_systempart" /dev/sda11 8:b 5213519872; then
+		halium_policy_panic "RMX1901 systempart identity changed before mount"
 		return 1
 	fi
-	if ! halium_is_block "$rmx1901_systempart_canonical"; then
-		halium_policy_panic "RMX1901 systempart canonical target is not a block device"
-		return 1
-	fi
-	if ! halium_mount -o rw "$rmx1901_systempart_canonical" "$systempart_mountpoint"; then
+	systempart_current=$rmx1901_measured_path
+	if ! halium_mount -o ro "$systempart_current" "$systempart_mountpoint"; then
 		halium_policy_panic "Could not mount validated RMX1901 system partition"
+		return 1
+	fi
+	if ! rmx1901_validate_mounted_superblock \
+		"$systempart_mountpoint" /dev/sda11 8:11 5213519872 ext4; then
+		if ! halium_umount "$systempart_mountpoint"; then
+			halium_policy_panic "Could not unmount RMX1901 system partition after identity failure"
+			return 1
+		fi
+		halium_policy_panic "Mounted RMX1901 system superblock identity mismatch"
+		return 1
+	fi
+	if ! rmx1901_mounted_superblock_is_readonly; then
+		if ! halium_umount "$systempart_mountpoint"; then
+			halium_policy_panic "Could not unmount RMX1901 system partition after identity failure"
+			return 1
+		fi
+		halium_policy_panic "Mounted RMX1901 system superblock identity mismatch"
 		return 1
 	fi
 	return 0
@@ -141,6 +429,10 @@ safe_mount_rmx1901_systempart() {
 safe_mount_userdata() {
 	userdata_device=$1
 	userdata_mountpoint=$2
+	rmx1901_userdata_probe_facts=
+	rmx1901_userdata_probe_dmesg=not_applicable
+	rmx1901_userdata_probe_recovery_fsync=not_applicable
+	rmx1901_userdata_probe_norecovery=not_applicable
 
 	if ! validate_rmx1901_userdata "$userdata_device"; then
 		return 1
@@ -165,39 +457,40 @@ safe_mount_userdata() {
 		halium_policy_panic "Could not probe userdata read-only"
 		return 1
 	fi
+	if ! rmx1901_validate_userdata_probe_mount "$userdata_mountpoint" "$userdata_canonical" "$userdata_type"; then
+		rmx1901_abort_mounted_userdata_probe "$userdata_mountpoint" \
+			"Unsafe or ambiguous userdata read-only probe mount"
+		return 1
+	fi
+	if [ "$userdata_type" = f2fs ]; then
+		rmx1901_userdata_probe_norecovery=yes
+	fi
 
 	# A read-only F2FS probe must not replay fsync data.  Keep the evidence only
 	# in initramfs shell memory: a failed collection is unsafe, and no temporary
 	# state may be written to userdata or another persistent filesystem.
 	if [ "$userdata_type" = f2fs ]; then
 		userdata_probe_log=$(halium_dmesg 2>/dev/null) || {
-			if ! halium_umount "$userdata_mountpoint"; then
-				halium_policy_panic "Could not unmount userdata read-only probe"
-				return 1
-			fi
-			halium_policy_panic "Could not collect F2FS read-only probe evidence"
+			rmx1901_abort_mounted_userdata_probe "$userdata_mountpoint" \
+				"Could not collect F2FS read-only probe evidence"
 			return 1
 		}
 		case "$userdata_probe_log" in
 			*'recover fsync data'*)
-				if ! halium_umount "$userdata_mountpoint"; then
-					halium_policy_panic "Could not unmount userdata read-only probe"
-					return 1
-				fi
-				halium_policy_panic "F2FS recovery detected during read-only userdata probe"
+				rmx1901_abort_mounted_userdata_probe "$userdata_mountpoint" \
+					"F2FS recovery detected during read-only userdata probe"
 				return 1
 				;;
 		esac
+		rmx1901_userdata_probe_dmesg=readable
+		rmx1901_userdata_probe_recovery_fsync=absent
 	fi
 
 	# Re-resolve the alias and bind all immutable identity properties after the
 	# probe mount, before checking for rootfs files on persistent storage.
-	if ! validate_rmx1901_userdata "$userdata_device"; then
-		if ! halium_umount "$userdata_mountpoint"; then
-			halium_policy_panic "Could not unmount userdata read-only probe"
-			return 1
-		fi
-		halium_policy_panic "RMX1901 userdata changed after read-only probe"
+	if ! check_rmx1901_userdata "$userdata_device"; then
+		rmx1901_abort_mounted_userdata_probe "$userdata_mountpoint" \
+			"RMX1901 userdata changed after read-only probe"
 		return 1
 	fi
 
@@ -206,7 +499,8 @@ safe_mount_userdata() {
 			halium_log "userdata_payload=system-partition path=${rmx1901_systempart-}"
 		else
 			halium_log "userdata_mount=readonly-rescue type=$userdata_type path=$userdata_canonical"
-			halium_policy_panic "No RMX1901 rootfs payload found on userdata"
+			rmx1901_abort_mounted_userdata_probe "$userdata_mountpoint" \
+				"No RMX1901 rootfs payload found on userdata"
 			return 1
 		fi
 	fi
@@ -218,5 +512,6 @@ safe_mount_userdata() {
 
 	# M0/M1 diagnostics must not turn a probe into a writable userdata mount.
 	halium_log "userdata_mount=readonly-probe type=$userdata_type path=$userdata_canonical"
+	rmx1901_userdata_probe_facts="path=$userdata_canonical major_minor=$rmx1901_userdata_major_minor fstype=$userdata_type readonly=yes norecovery=$rmx1901_userdata_probe_norecovery rw=absent dmesg=$rmx1901_userdata_probe_dmesg recovery_fsync=$rmx1901_userdata_probe_recovery_fsync unmounted=yes result=safe"
 	return 0
 }

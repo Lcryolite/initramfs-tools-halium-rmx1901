@@ -64,6 +64,8 @@ for stage in DEV_MOVE_BEGIN DEV_MOVE_DONE CONSOLE_OPEN_OK CONSOLE_OPEN_FAILED \
 done
 HALIUM_POLICY_UNDER_TEST="$DERIVED_EXTRACTED/scripts/halium-userdata" \
 	/bin/sh "$PROJECT_ROOT/tests/test-safe-userdata.sh" >/dev/null || fail "packed policy behavior failed"
+HALIUM_POLICY_UNDER_TEST="$DERIVED_EXTRACTED/scripts/halium-userdata" \
+	/bin/sh "$PROJECT_ROOT/tests/test-handoff-semantics.sh" >/dev/null || fail "packed handoff semantics failed"
 RMX1901_DEBUG_POLICY_UNDER_TEST="$DERIVED_EXTRACTED/scripts/halium-rmx1901-debug" \
 	/bin/sh "$PROJECT_ROOT/tests/test-debug-rndis.sh" >/dev/null || fail "packed diagnostic policy behavior failed"
 

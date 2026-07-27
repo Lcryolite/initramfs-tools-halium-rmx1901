@@ -4,26 +4,38 @@ set -eu
 PROJECT_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 . "$PROJECT_ROOT/tools/archive-lib.sh"
 BASE_INIT_PATCH=$PROJECT_ROOT/patches/0001-rmx1901-record-base-init-handoff-events.patch
+M1_SPEC_ORDER_GATE=$PROJECT_ROOT/tools/check-m1-spec-order.sh
+M1_SPEC_ORDER_SPEC=$PROJECT_ROOT/config/m1-event-order-spec.md
 
 BASE_IMAGE=${1:?usage: audit-initrd.sh BASE DERIVED BEFORE_MANIFEST AFTER_MANIFEST}
 DERIVED_IMAGE=${2:?usage: audit-initrd.sh BASE DERIVED BEFORE_MANIFEST AFTER_MANIFEST}
 RECORDED_BEFORE=${3:?usage: audit-initrd.sh BASE DERIVED BEFORE_MANIFEST AFTER_MANIFEST}
 RECORDED_AFTER=${4:?usage: audit-initrd.sh BASE DERIVED BEFORE_MANIFEST AFTER_MANIFEST}
-BASE_IMAGE=$(readlink -f "$BASE_IMAGE")
-DERIVED_IMAGE=$(readlink -f "$DERIVED_IMAGE")
-RECORDED_BEFORE=$(readlink -f "$RECORDED_BEFORE")
-RECORDED_AFTER=$(readlink -f "$RECORDED_AFTER")
 PINNED_BASE_SHA=0bbac4577f3567aec935c958216de5d30c7355452ca56248d6728f4f2634bdb6
-actual_base_sha=$(sha256sum "$BASE_IMAGE" | awk '{print $1}')
-if [ "$actual_base_sha" != "$PINNED_BASE_SHA" ]; then
-	printf 'base initrd SHA-256 mismatch: expected %s, got %s\n' "$PINNED_BASE_SHA" "$actual_base_sha" >&2
-	exit 1
+BASE_SNAPSHOT_TOOL=$PROJECT_ROOT/tools/snapshot-regular-file.py
+
+if ! "$M1_SPEC_ORDER_GATE" "$M1_SPEC_ORDER_SPEC"; then
+	printf 'M1 source/spec order gate failed\n' >&2
+	exit 20
 fi
 
 AUDIT_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/rmx1901-initrd-audit.XXXXXX")
 trap 'rm -rf "$AUDIT_ROOT"' EXIT HUP INT TERM
-extract_initrd "$BASE_IMAGE" "$AUDIT_ROOT/base"
-extract_initrd "$DERIVED_IMAGE" "$AUDIT_ROOT/derived"
+BASE_SNAPSHOT=$AUDIT_ROOT/base.snapshot
+DERIVED_SNAPSHOT=$AUDIT_ROOT/derived.snapshot
+RECORDED_BEFORE_SNAPSHOT=$AUDIT_ROOT/before-manifest.snapshot
+RECORDED_AFTER_SNAPSHOT=$AUDIT_ROOT/after-manifest.snapshot
+"$BASE_SNAPSHOT_TOOL" "$BASE_IMAGE" "$BASE_SNAPSHOT"
+"$BASE_SNAPSHOT_TOOL" "$DERIVED_IMAGE" "$DERIVED_SNAPSHOT"
+"$BASE_SNAPSHOT_TOOL" "$RECORDED_BEFORE" "$RECORDED_BEFORE_SNAPSHOT"
+"$BASE_SNAPSHOT_TOOL" "$RECORDED_AFTER" "$RECORDED_AFTER_SNAPSHOT"
+actual_base_sha=$(sha256sum "$BASE_SNAPSHOT" | awk '{print $1}')
+if [ "$actual_base_sha" != "$PINNED_BASE_SHA" ]; then
+	printf 'base initrd SHA-256 mismatch: expected %s, got %s\n' "$PINNED_BASE_SHA" "$actual_base_sha" >&2
+	exit 1
+fi
+extract_initrd "$BASE_SNAPSHOT" "$AUDIT_ROOT/base"
+extract_initrd "$DERIVED_SNAPSHOT" "$AUDIT_ROOT/derived"
 test -f "$BASE_INIT_PATCH" || {
 	printf 'RMX1901 base-init handoff patch is missing: %s\n' "$BASE_INIT_PATCH" >&2
 	exit 1
@@ -37,8 +49,8 @@ cp "$AUDIT_ROOT/base/init" "$AUDIT_ROOT/expected-init/init"
 cmp "$AUDIT_ROOT/expected-init/init" "$AUDIT_ROOT/derived/init"
 manifest_tree "$AUDIT_ROOT/base" "$AUDIT_ROOT/before.manifest"
 manifest_tree "$AUDIT_ROOT/derived" "$AUDIT_ROOT/after.manifest"
-cmp "$RECORDED_BEFORE" "$AUDIT_ROOT/before.manifest"
-cmp "$RECORDED_AFTER" "$AUDIT_ROOT/after.manifest"
+cmp "$RECORDED_BEFORE_SNAPSHOT" "$AUDIT_ROOT/before.manifest"
+cmp "$RECORDED_AFTER_SNAPSHOT" "$AUDIT_ROOT/after.manifest"
 
 write_delta_manifest "$AUDIT_ROOT/before.manifest" "$AUDIT_ROOT/after.manifest" "$AUDIT_ROOT/delta.manifest"
 expected_delta='ADD scripts/halium-rmx1901-debug

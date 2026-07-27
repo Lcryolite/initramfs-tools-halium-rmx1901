@@ -30,6 +30,15 @@ grep -Fq 'CONSOLE_OPEN_FAILED "path=${rootmnt}/dev/console open_status=${rmx1901
 grep -Fq 'RUN_INIT_EXEC "init=${init} inode=${rmx1901_init_inode} type=${rmx1901_init_type}"' "$BASE_INIT_PATCH" ||
 	fail 'run-init event has no init inode and type'
 
+grep -Fq 'CMDLINE_PARSED "$rmx1901_cmdline_facts"' "$HALIUM" ||
+	fail 'cmdline event is not wired to exact required-token facts'
+grep -Fq 'ROOT_DEVICE_RESOLVED "$rmx1901_root_device_facts"' "$HALIUM" ||
+	fail 'root-device event is not wired to canonical path and major:minor facts'
+grep -Fq 'USERDATA_PROBED "$rmx1901_userdata_probe_facts"' "$HALIUM" ||
+	fail 'userdata event is not wired to safe probe facts'
+grep -Fq 'ROOTFS_MOUNTED "$rmx1901_rootfs_mount_facts"' "$HALIUM" ||
+	fail 'rootfs event is not wired to mounted filesystem facts'
+
 for stage in \
 	CMDLINE_PARSED ROOT_DEVICE_RESOLVED USERDATA_PROBED ROOTFS_MOUNTED \
 	DEV_MOVE_BEGIN DEV_MOVE_DONE CONSOLE_OPEN_OK CONSOLE_OPEN_FAILED \
