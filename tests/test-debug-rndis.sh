@@ -43,7 +43,7 @@ mkdir -p \
 	"$FAKE_GADGET" "$FAKE_UDC/a600000.dwc3" "$FAKE_NET/rndis0" \
 	"$FAKE_RUNTIME" "$FAKE_BIN"
 : >"$FAKE_ROOT/usr/lib/systemd/system/usb-moded.service"
-: >"$FAKE_ROOT/opt/halium-overlay/etc/ssh/authorized_keys/rmx1901-bringup"
+: >"$FAKE_ROOT/opt/halium-overlay/etc/ssh/authorized_keys/rmx1901-ut-debug"
 printf 'phablet:x:32011:32011:phablet:/home/phablet:/bin/bash\n' \
 	>"$FAKE_ROOT/var/lib/extrausers/passwd"
 : >"$CALL_LOG"
@@ -68,6 +68,14 @@ fi
 EOF
 	chmod 0755 "$FAKE_BIN/$command_name"
 done
+cat >"$FAKE_BIN/mkdir" <<'EOF'
+#!/bin/sh
+if [ "${FAIL_PRIMARY_RNDIS:-0}" = 1 ] && [ "${1:-}" = "$RMX1901_GADGET_DIR/g1/functions/rndis.usb0" ]; then
+  exit 77
+fi
+exec /bin/mkdir "$@"
+EOF
+chmod 0755 "$FAKE_BIN/mkdir"
 printf 'sleep 5\n' >>"$FAKE_BIN/chroot"
 
 PATH="$FAKE_BIN:$PATH"
@@ -88,7 +96,7 @@ grep -Fxq 'ifconfig rndis0 192.168.2.15 netmask 255.255.255.0 up' \
 [ "$(cat "$FAKE_GADGET/g1/idProduct")" = 0xD001 ] || fail 'wrong gadget PID'
 [ "$(cat "$FAKE_GADGET/g1/UDC")" = a600000.dwc3 ] || fail 'wrong UDC binding'
 [ -L "$FAKE_GADGET/g1/configs/c.1/rndis.usb0" ] || fail 'rndis function is not linked'
-[ -L "$FAKE_GADGET/g1/configs/c.1/rndis_bam.rndis" ] || fail 'rndis_bam function is not linked'
+[ ! -e "$FAKE_GADGET/g1/configs/c.1/rndis_bam.rndis" ] || fail 'fallback RNDIS function must not be linked with primary'
 [ "$(grep -c '^chroot ' "$CALL_LOG")" -eq 1 ] || fail 'rootfs helper launch count is wrong'
 grep -Fq 'PasswordAuthentication=no' "$CALL_LOG" || fail 'password authentication is not disabled'
 grep -Fq 'AuthenticationMethods=publickey' "$CALL_LOG" || fail 'public-key-only policy is missing'
@@ -97,10 +105,22 @@ grep -Fq -- '-f /dev/null' "$CALL_LOG" || fail 'host ssh configuration was not i
 grep -Fq 'UseDNS=no' "$CALL_LOG" || fail 'reverse DNS lookup is not disabled'
 grep -Fq 'trap debug_inner_cleanup 0 1 2 3 15' "$CALL_LOG" ||
 	fail 'post-handoff helper cleanup trap is missing'
-grep -Fq 'AuthorizedKeysFile=/opt/halium-overlay/etc/ssh/authorized_keys/rmx1901-bringup' \
+grep -Fq 'AuthorizedKeysFile=/opt/halium-overlay/etc/ssh/authorized_keys/rmx1901-ut-debug' \
 	"$CALL_LOG" || fail 'immutable authorized key is not used'
 kill "$dbg_helper_pid" 2>/dev/null || true
 wait "$dbg_helper_pid" 2>/dev/null || true
+
+rm -rf "$FAKE_GADGET/g1"
+rm -f "$FAKE_RUNTIME/systemd/system/usb-moded.service" \
+	"$FAKE_RUNTIME/rmx1901-debug-handoff"
+FAIL_PRIMARY_RNDIS=1
+export FAIL_PRIMARY_RNDIS
+rmx1901_enable_debug_bridge "$FAKE_ROOT" || fail 'RNDIS fallback bridge fixture failed'
+[ -L "$FAKE_GADGET/g1/configs/c.1/rndis_bam.rndis" ] || fail 'fallback RNDIS function is not linked'
+[ ! -e "$FAKE_GADGET/g1/configs/c.1/rndis.usb0" ] || fail 'failed primary RNDIS function leaked'
+kill "$dbg_helper_pid" 2>/dev/null || true
+wait "$dbg_helper_pid" 2>/dev/null || true
+unset FAIL_PRIMARY_RNDIS
 
 rm -rf "$FAKE_GADGET/g1"
 rm -f "$FAKE_RUNTIME/systemd/system/usb-moded.service" \

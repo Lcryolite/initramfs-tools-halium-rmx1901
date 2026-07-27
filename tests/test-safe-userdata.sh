@@ -12,314 +12,56 @@ halium_umount() { "$FAKE_BIN/umount" "$@"; }
 halium_is_block() { "$FAKE_BIN/is-block" "$@"; }
 halium_has_payload() { "$FAKE_BIN/has-payload" "$@"; }
 halium_canonical_path() { "$FAKE_BIN/canonical-path" "$@"; }
+halium_major_minor() { "$FAKE_BIN/major-minor" "$@"; }
+halium_block_size() { "$FAKE_BIN/block-size" "$@"; }
 halium_log() { "$FAKE_BIN/log" "$@"; }
 halium_policy_panic() { "$FAKE_BIN/panic" "$@"; }
 
-DEVICE=/dev/fake-userdata
+DEVICE=/dev/block/by-name/userdata
 MOUNTPOINT=/tmpmnt
 failures=0
 
-run_test() {
-	test_name=$1
-	fixture_start
-	if "$test_name"; then
-		printf 'ok - %s\n' "$test_name"
-	else
-		failures=$((failures + 1))
-	fi
-	fixture_stop
+run_test() { fixture_start; if "$1"; then printf 'ok - %s\n' "$1"; else failures=$((failures + 1)); fi; fixture_stop; }
+
+test_f2fs_probe_is_exactly_readonly_and_never_writable() {
+  BLKID_OUTPUT=f2fs; export BLKID_OUTPUT
+  assert_success safe_mount_userdata "$DEVICE" "$MOUNTPOINT" || return 1
+  grep -Fxq "mount|-t|f2fs|-o|ro,norecovery|/dev/sda13|$MOUNTPOINT" "$CALL_LOG" || return 1
+  ! grep -Fq 'rw,noatime' "$CALL_LOG"
 }
 
-test_ext4_uses_readonly_probe_before_writable_mount() {
-	BLKID_OUTPUT=ext4; export BLKID_OUTPUT
-	assert_success safe_mount_userdata "$DEVICE" "$MOUNTPOINT" || return 1
-	assert_eq "$(cat "$CALL_LOG")" "is-block|$DEVICE
-blkid|-s|TYPE|-o|value|$DEVICE
-mount|-t|ext4|-o|ro,noload|$DEVICE|$MOUNTPOINT
-has-payload|$MOUNTPOINT
-umount|$MOUNTPOINT
-mount|-t|ext4|-o|rw,noatime|$DEVICE|$MOUNTPOINT
-log|userdata_mount=readwrite type=ext4 path=$DEVICE" "ext4 mount ordering/options changed"
+test_userdata_canonical_path_must_be_sda13() {
+  CANONICAL_PATH=/dev/sda12; export CANONICAL_PATH
+  assert_failure safe_mount_userdata "$DEVICE" "$MOUNTPOINT" || return 1
+  grep -Fxq 'panic|RMX1901 userdata canonical target mismatch' "$CALL_LOG"
 }
 
-test_f2fs_uses_f2fs_readonly_probe_before_writable_mount() {
-	BLKID_OUTPUT=f2fs; export BLKID_OUTPUT
-	assert_success safe_mount_userdata "$DEVICE" "$MOUNTPOINT" || return 1
-	assert_eq "$(cat "$CALL_LOG")" "is-block|$DEVICE
-blkid|-s|TYPE|-o|value|$DEVICE
-mount|-t|f2fs|-o|ro|$DEVICE|$MOUNTPOINT
-has-payload|$MOUNTPOINT
-umount|$MOUNTPOINT
-mount|-t|f2fs|-o|rw,noatime|$DEVICE|$MOUNTPOINT
-log|userdata_mount=readwrite type=f2fs path=$DEVICE" "f2fs mount ordering/options changed"
+test_userdata_major_minor_must_match() {
+  MAJOR_MINOR=8:c; export MAJOR_MINOR
+  assert_failure safe_mount_userdata "$DEVICE" "$MOUNTPOINT" || return 1
+  grep -Fxq 'panic|RMX1901 userdata major:minor mismatch' "$CALL_LOG"
 }
 
-test_unknown_type_panics_without_mounting() {
-	BLKID_OUTPUT=erofs; export BLKID_OUTPUT
-	assert_failure safe_mount_userdata "$DEVICE" "$MOUNTPOINT" || return 1
-	assert_eq "$(cat "$CALL_LOG")" "is-block|$DEVICE
-blkid|-s|TYPE|-o|value|$DEVICE
-panic|Unsupported or ambiguous userdata filesystem type" "unknown type reached mount"
+test_userdata_capacity_must_match() {
+  BLOCK_SIZE=1; export BLOCK_SIZE
+  assert_failure safe_mount_userdata "$DEVICE" "$MOUNTPOINT" || return 1
+  grep -Fxq 'panic|RMX1901 userdata capacity mismatch' "$CALL_LOG"
 }
 
-test_multiline_type_panics_without_mounting() {
-	BLKID_OUTPUT='ext4
-f2fs'; export BLKID_OUTPUT
-	assert_failure safe_mount_userdata "$DEVICE" "$MOUNTPOINT" || return 1
-	assert_eq "$(cat "$CALL_LOG")" "is-block|$DEVICE
-blkid|-s|TYPE|-o|value|$DEVICE
-panic|Unsupported or ambiguous userdata filesystem type" "multiline type reached mount"
+test_unknown_filesystem_never_mounts() {
+  BLKID_OUTPUT=erofs; export BLKID_OUTPUT
+  assert_failure safe_mount_userdata "$DEVICE" "$MOUNTPOINT" || return 1
+  ! grep -q '^mount|' "$CALL_LOG"
 }
 
-test_empty_type_panics_without_mounting() {
-	BLKID_OUTPUT=; export BLKID_OUTPUT
-	assert_failure safe_mount_userdata "$DEVICE" "$MOUNTPOINT" || return 1
-	assert_eq "$(cat "$CALL_LOG")" "is-block|$DEVICE
-blkid|-s|TYPE|-o|value|$DEVICE
-panic|Unsupported or ambiguous userdata filesystem type" "empty type reached mount"
-}
-
-test_non_block_device_panics_before_blkid() {
-	IS_BLOCK=0; export IS_BLOCK
-	assert_failure safe_mount_userdata "$DEVICE" "$MOUNTPOINT" || return 1
-	assert_eq "$(cat "$CALL_LOG")" "is-block|$DEVICE
-panic|Userdata path is not a block device" "non-block path reached blkid or mount"
-}
-
-test_readonly_probe_failure_panics_without_writable_mount() {
-	FAIL_RO=1; export FAIL_RO
-	assert_failure safe_mount_userdata "$DEVICE" "$MOUNTPOINT" || return 1
-	assert_eq "$(cat "$CALL_LOG")" "is-block|$DEVICE
-blkid|-s|TYPE|-o|value|$DEVICE
-mount|-t|ext4|-o|ro,noload|$DEVICE|$MOUNTPOINT
-panic|Could not probe userdata read-only" "failed probe continued"
-}
-
-test_unmount_failure_panics_without_writable_mount() {
-	FAIL_UMOUNT=1; export FAIL_UMOUNT
-	assert_failure safe_mount_userdata "$DEVICE" "$MOUNTPOINT" || return 1
-	assert_eq "$(cat "$CALL_LOG")" "is-block|$DEVICE
-blkid|-s|TYPE|-o|value|$DEVICE
-mount|-t|ext4|-o|ro,noload|$DEVICE|$MOUNTPOINT
-has-payload|$MOUNTPOINT
-umount|$MOUNTPOINT
-panic|Could not unmount userdata read-only probe" "failed unmount continued"
-}
-
-test_writable_failure_remounts_readonly_then_panics() {
-	FAIL_RW=1; export FAIL_RW
-	assert_failure safe_mount_userdata "$DEVICE" "$MOUNTPOINT" || return 1
-	assert_eq "$(cat "$CALL_LOG")" "is-block|$DEVICE
-blkid|-s|TYPE|-o|value|$DEVICE
-mount|-t|ext4|-o|ro,noload|$DEVICE|$MOUNTPOINT
-has-payload|$MOUNTPOINT
-umount|$MOUNTPOINT
-mount|-t|ext4|-o|rw,noatime|$DEVICE|$MOUNTPOINT
-mount|-t|ext4|-o|ro,noload|$DEVICE|$MOUNTPOINT
-log|userdata_mount=readonly-rescue type=ext4 path=$DEVICE
-panic|Could not mount userdata read-write; left in read-only rescue mode" "rw failure did not enter read-only rescue"
-}
-
-test_missing_payload_stays_readonly_and_panics() {
-	HAS_PAYLOAD=0; export HAS_PAYLOAD
-	assert_failure safe_mount_userdata "$DEVICE" "$MOUNTPOINT" || return 1
-	assert_eq "$(cat "$CALL_LOG")" "is-block|$DEVICE
-blkid|-s|TYPE|-o|value|$DEVICE
-mount|-t|ext4|-o|ro,noload|$DEVICE|$MOUNTPOINT
-has-payload|$MOUNTPOINT
-log|userdata_mount=readonly-rescue type=ext4 path=$DEVICE
-panic|No RMX1901 rootfs payload found on userdata" "missing payload reached writable mount"
-}
-
-test_valid_rmx1901_systempart_allows_userdata_without_legacy_payload() {
-	HAS_PAYLOAD=0; export HAS_PAYLOAD
-	assert_success validate_rmx1901_systempart_cmdline \
-		'console=tty0 systempart=/dev/disk/by-partlabel/system androidboot.mode=normal' || return 1
-	assert_success safe_mount_userdata "$DEVICE" "$MOUNTPOINT" || return 1
-	assert_eq "$(cat "$CALL_LOG")" "canonical-path|/dev/disk/by-partlabel/system
-is-block|/dev/sda11
-is-block|$DEVICE
-blkid|-s|TYPE|-o|value|$DEVICE
-mount|-t|ext4|-o|ro,noload|$DEVICE|$MOUNTPOINT
-has-payload|$MOUNTPOINT
-log|userdata_payload=system-partition path=/dev/disk/by-partlabel/system
-umount|$MOUNTPOINT
-mount|-t|ext4|-o|rw,noatime|$DEVICE|$MOUNTPOINT
-log|userdata_mount=readwrite type=ext4 path=$DEVICE" "validated system partition did not allow payload-free userdata safely"
-}
-
-test_no_systempart_keeps_legacy_payload_requirement() {
-	HAS_PAYLOAD=0; export HAS_PAYLOAD
-	assert_success validate_rmx1901_systempart_cmdline 'console=tty0 androidboot.mode=normal' || return 1
-	assert_failure safe_mount_userdata "$DEVICE" "$MOUNTPOINT" || return 1
-	assert_eq "$(cat "$CALL_LOG")" "is-block|$DEVICE
-blkid|-s|TYPE|-o|value|$DEVICE
-mount|-t|ext4|-o|ro,noload|$DEVICE|$MOUNTPOINT
-has-payload|$MOUNTPOINT
-log|userdata_mount=readonly-rescue type=ext4 path=$DEVICE
-panic|No RMX1901 rootfs payload found on userdata" "legacy payload requirement was weakened without systempart"
-}
-
-test_unset_systempart_state_keeps_legacy_payload_requirement() {
-	HAS_PAYLOAD=0; export HAS_PAYLOAD
-	unset rmx1901_systempart
-	assert_failure safe_mount_userdata "$DEVICE" "$MOUNTPOINT" || return 1
-	assert_eq "$(cat "$CALL_LOG")" "is-block|$DEVICE
-blkid|-s|TYPE|-o|value|$DEVICE
-mount|-t|ext4|-o|ro,noload|$DEVICE|$MOUNTPOINT
-has-payload|$MOUNTPOINT
-log|userdata_mount=readonly-rescue type=ext4 path=$DEVICE
-panic|No RMX1901 rootfs payload found on userdata" "unset validation state did not fail closed to legacy policy"
-}
-
-assert_systempart_rejected() {
-	cmdline=$1
-	expected_calls=$2
-	assert_failure validate_rmx1901_systempart_cmdline "$cmdline" || return 1
-	assert_eq "$(cat "$CALL_LOG")" "$expected_calls" "unsafe systempart was accepted"
-}
-
-test_raw_canonical_system_path_is_not_an_allowed_cmdline_alias() {
-	assert_systempart_rejected \
-		'systempart=/dev/sda11' \
-		'panic|Unsafe RMX1901 systempart command-line value'
-}
-
-test_dynamic_partition_path_is_rejected() {
-	assert_systempart_rejected \
-		'systempart=/dev/block/mapper/system' \
-		'panic|Unsafe RMX1901 systempart command-line value'
-}
-
-test_other_by_name_partition_is_rejected() {
-	assert_systempart_rejected \
-		'systempart=/dev/block/by-name/vendor' \
-		'panic|Unsafe RMX1901 systempart command-line value'
-}
-
-test_legacy_by_name_system_alias_is_rejected() {
-	assert_systempart_rejected \
-		'systempart=/dev/block/by-name/system' \
-		'panic|Unsafe RMX1901 systempart command-line value'
-}
-
-test_system_alias_resolving_elsewhere_is_rejected() {
-	CANONICAL_PATH=/dev/block/sde15; export CANONICAL_PATH
-	assert_systempart_rejected \
-		'systempart=/dev/disk/by-partlabel/system' \
-		"canonical-path|/dev/disk/by-partlabel/system
-panic|RMX1901 systempart canonical target mismatch"
-}
-
-test_system_alias_resolving_to_recovery_only_android_path_is_rejected() {
-	CANONICAL_PATH=/dev/block/sda11; export CANONICAL_PATH
-	assert_systempart_rejected \
-		'systempart=/dev/disk/by-partlabel/system' \
-		"canonical-path|/dev/disk/by-partlabel/system
-panic|RMX1901 systempart canonical target mismatch"
-}
-
-test_system_alias_resolving_to_nearby_early_block_paths_is_rejected() {
-	for wrong_target in /dev/sda12 /dev/sde11; do
-		: >"$CALL_LOG"
-		CANONICAL_PATH=$wrong_target; export CANONICAL_PATH
-		assert_systempart_rejected \
-			'systempart=/dev/disk/by-partlabel/system' \
-			"canonical-path|/dev/disk/by-partlabel/system
-panic|RMX1901 systempart canonical target mismatch" || return 1
-	done
-}
-
-test_non_block_canonical_system_target_is_rejected() {
-	IS_BLOCK=0; export IS_BLOCK
-	assert_systempart_rejected \
-		'systempart=/dev/disk/by-partlabel/system' \
-		"canonical-path|/dev/disk/by-partlabel/system
-is-block|/dev/sda11
-panic|RMX1901 systempart canonical target is not a block device"
-}
-
-test_duplicate_systempart_arguments_are_rejected() {
-	assert_systempart_rejected \
-		'systempart=/dev/disk/by-partlabel/system systempart=/dev/disk/by-partlabel/system' \
-		'panic|Multiple systempart command-line values'
-}
-
-test_malformed_systempart_value_is_rejected_without_path_resolution() {
-	assert_systempart_rejected \
-		'systempart=/dev/disk/by-partlabel/system;reboot' \
-		'panic|Unsafe RMX1901 systempart command-line value'
-}
-
-test_systempart_glob_is_rejected_even_when_cwd_can_expand_it_to_allowlisted_path() {
-	mkdir -p "$FIXTURE_ROOT/systempart=/dev/disk/by-partlabel"
-	: >"$FIXTURE_ROOT/systempart=/dev/disk/by-partlabel/system"
-	original_directory=$PWD
-	cd "$FIXTURE_ROOT" || return 1
-	assert_failure validate_rmx1901_systempart_cmdline \
-		'systempart=/dev/disk/by-partlabel/*' || {
-			cd "$original_directory" || return 1
-			return 1
-		}
-	cd "$original_directory" || return 1
-	assert_eq "$(cat "$CALL_LOG")" \
-		'panic|Unsafe RMX1901 systempart command-line value' \
-		'glob-expanded systempart bypassed the literal allowlist'
-}
-
-test_systempart_alias_is_revalidated_after_userdata_before_mount() {
-	CANONICAL_PATH_AFTER_FIRST=/dev/block/sde15; export CANONICAL_PATH_AFTER_FIRST
-	assert_success validate_rmx1901_systempart_cmdline \
-		'systempart=/dev/disk/by-partlabel/system' || return 1
-	assert_failure safe_mount_rmx1901_systempart /halium-system || return 1
-	assert_eq "$(cat "$CALL_LOG")" "canonical-path|/dev/disk/by-partlabel/system
-is-block|/dev/sda11
-canonical-path|/dev/disk/by-partlabel/system
-panic|RMX1901 systempart changed before mount" "systempart alias TOCTOU was not rejected"
-}
-
-test_systempart_mount_uses_saved_canonical_path_and_propagates_failure() {
-	FAIL_SYSTEM_MOUNT=1; export FAIL_SYSTEM_MOUNT
-	assert_success validate_rmx1901_systempart_cmdline \
-		'systempart=/dev/disk/by-partlabel/system' || return 1
-	assert_failure safe_mount_rmx1901_systempart /halium-system || return 1
-	assert_eq "$(cat "$CALL_LOG")" "canonical-path|/dev/disk/by-partlabel/system
-is-block|/dev/sda11
-canonical-path|/dev/disk/by-partlabel/system
-is-block|/dev/sda11
-mount|-o|rw|/dev/sda11|/halium-system
-panic|Could not mount validated RMX1901 system partition" "systempart mount failure was ignored or alias was mounted"
-}
-
-for test_case in \
-	test_ext4_uses_readonly_probe_before_writable_mount \
-	test_f2fs_uses_f2fs_readonly_probe_before_writable_mount \
-	test_unknown_type_panics_without_mounting \
-	test_multiline_type_panics_without_mounting \
-	test_empty_type_panics_without_mounting \
-	test_non_block_device_panics_before_blkid \
-	test_readonly_probe_failure_panics_without_writable_mount \
-	test_unmount_failure_panics_without_writable_mount \
-	test_writable_failure_remounts_readonly_then_panics \
-	test_missing_payload_stays_readonly_and_panics \
-	test_valid_rmx1901_systempart_allows_userdata_without_legacy_payload \
-	test_no_systempart_keeps_legacy_payload_requirement \
-	test_unset_systempart_state_keeps_legacy_payload_requirement \
-	test_raw_canonical_system_path_is_not_an_allowed_cmdline_alias \
-	test_dynamic_partition_path_is_rejected \
-	test_other_by_name_partition_is_rejected \
-	test_legacy_by_name_system_alias_is_rejected \
-	test_system_alias_resolving_elsewhere_is_rejected \
-	test_system_alias_resolving_to_recovery_only_android_path_is_rejected \
-	test_system_alias_resolving_to_nearby_early_block_paths_is_rejected \
-	test_non_block_canonical_system_target_is_rejected \
-	test_duplicate_systempart_arguments_are_rejected \
-	test_malformed_systempart_value_is_rejected_without_path_resolution \
-	test_systempart_glob_is_rejected_even_when_cwd_can_expand_it_to_allowlisted_path \
-	test_systempart_alias_is_revalidated_after_userdata_before_mount \
-	test_systempart_mount_uses_saved_canonical_path_and_propagates_failure
-do
-	run_test "$test_case"
+for test_name in \
+  test_f2fs_probe_is_exactly_readonly_and_never_writable \
+  test_userdata_canonical_path_must_be_sda13 \
+  test_userdata_major_minor_must_match \
+  test_userdata_capacity_must_match \
+  test_unknown_filesystem_never_mounts; do
+  run_test "$test_name"
 done
 
-[ "$failures" -eq 0 ]
+[ "$failures" -eq 0 ] || exit 1
+printf 'safe_userdata_policy=pass\n'

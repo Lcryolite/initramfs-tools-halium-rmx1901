@@ -51,6 +51,14 @@ case "$name" in
 			printf '%s\n' "${CANONICAL_PATH-}"
 		fi
 		;;
+	major-minor)
+		record "$@"
+		printf '%s\n' "${MAJOR_MINOR-}"
+		;;
+	block-size)
+		record "$@"
+		printf '%s\n' "${BLOCK_SIZE-}"
+		;;
 	log|panic)
 		record "$@"
 		;;

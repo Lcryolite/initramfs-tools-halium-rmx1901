@@ -79,7 +79,7 @@ rmx1901_enable_debug_bridge() {
 	dbg_runtime_systemd=$dbg_runtime_dir/systemd/system
 	dbg_runtime_mask=$dbg_runtime_systemd/usb-moded.service
 	dbg_handoff=$dbg_runtime_dir/rmx1901-debug-handoff
-	dbg_authorized_key=$dbg_root/opt/halium-overlay/etc/ssh/authorized_keys/rmx1901-bringup
+	dbg_authorized_key=$dbg_root/opt/halium-overlay/etc/ssh/authorized_keys/rmx1901-ut-debug
 
 	[ -n "$dbg_root" ] || return 1
 	[ -f "$dbg_usb_unit" ] || return 1
@@ -121,15 +121,30 @@ rmx1901_enable_debug_bridge() {
 		! rmx1901_debug_write "$dbg_gadget/strings/0x409/serialnumber" rmx1901-diagnostic ||
 		! rmx1901_debug_write "$dbg_gadget/strings/0x409/manufacturer" 'Halium initrd' ||
 		! rmx1901_debug_write "$dbg_gadget/strings/0x409/product" 'RMX1901 diagnostic bridge' ||
-		! mkdir "$dbg_gadget/functions/rndis.usb0" ||
-		! mkdir "$dbg_gadget/functions/rndis_bam.rndis" ||
 		! mkdir "$dbg_gadget/configs/c.1" ||
 		! mkdir -p "$dbg_gadget/configs/c.1/strings" ||
 		! mkdir "$dbg_gadget/configs/c.1/strings/0x409" ||
-		! rmx1901_debug_write "$dbg_gadget/configs/c.1/strings/0x409/configuration" rndis ||
-		! ln -s "$dbg_gadget/functions/rndis.usb0" "$dbg_gadget/configs/c.1/rndis.usb0" ||
-		! ln -s "$dbg_gadget/functions/rndis_bam.rndis" "$dbg_gadget/configs/c.1/rndis_bam.rndis" ||
-		! rmx1901_debug_write "$dbg_gadget/UDC" "$dbg_udc"; then
+		! rmx1901_debug_write "$dbg_gadget/configs/c.1/strings/0x409/configuration" rndis; then
+		rmx1901_debug_cleanup "$dbg_gadget" "$dbg_runtime_mask" "$dbg_handoff"
+		return 1
+	fi
+
+	# SDM710 vendor kernels vary: some expose rndis.usb0, others only the
+	# BAM RNDIS function.  A diagnostic gadget needs exactly one successful
+	# function, not both.  Always clean the failed candidate before trying the
+	# fallback so configfs state cannot leak across attempts.
+	dbg_rndis_function=
+	for dbg_candidate in rndis.usb0 rndis_bam.rndis; do
+		if mkdir "$dbg_gadget/functions/$dbg_candidate" 2>/dev/null &&
+			ln -s "$dbg_gadget/functions/$dbg_candidate" \
+				"$dbg_gadget/configs/c.1/$dbg_candidate" 2>/dev/null; then
+			dbg_rndis_function=$dbg_candidate
+			break
+		fi
+		/bin/rm -f "$dbg_gadget/configs/c.1/$dbg_candidate" 2>/dev/null || true
+		rmdir "$dbg_gadget/functions/$dbg_candidate" 2>/dev/null || true
+	done
+	if [ -z "$dbg_rndis_function" ] || ! rmx1901_debug_write "$dbg_gadget/UDC" "$dbg_udc"; then
 		rmx1901_debug_cleanup "$dbg_gadget" "$dbg_runtime_mask" "$dbg_handoff"
 		return 1
 	fi
@@ -215,7 +230,7 @@ rmx1901_enable_debug_bridge() {
 			-o KbdInteractiveAuthentication=no \
 			-o PubkeyAuthentication=yes \
 			-o AuthenticationMethods=publickey \
-			-o AuthorizedKeysFile=/opt/halium-overlay/etc/ssh/authorized_keys/rmx1901-bringup \
+			-o AuthorizedKeysFile=/opt/halium-overlay/etc/ssh/authorized_keys/rmx1901-ut-debug \
 			-o StrictModes=yes \
 			-o PermitRootLogin=no \
 			-o AllowUsers=phablet \

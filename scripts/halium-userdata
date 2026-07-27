@@ -32,6 +32,14 @@ halium_policy_panic() {
 	halium_panic "$1"
 }
 
+halium_major_minor() {
+	stat -Lc '%t:%T' "$1"
+}
+
+halium_block_size() {
+	blockdev --getsize64 "$1"
+}
+
 validate_rmx1901_systempart_cmdline() {
 	rmx1901_systempart=
 	rmx1901_systempart_canonical=
@@ -107,19 +115,32 @@ safe_mount_rmx1901_systempart() {
 safe_mount_userdata() {
 	userdata_device=$1
 	userdata_mountpoint=$2
+	userdata_canonical=$(halium_canonical_path "$userdata_device" 2>/dev/null) || userdata_canonical=
 
-	if ! halium_is_block "$userdata_device"; then
-		halium_policy_panic "Userdata path is not a block device"
+	if [ "$userdata_canonical" != /dev/sda13 ]; then
+		halium_policy_panic "RMX1901 userdata canonical target mismatch"
+		return 1
+	fi
+	if ! halium_is_block "$userdata_canonical"; then
+		halium_policy_panic "RMX1901 userdata canonical target is not a block device"
+		return 1
+	fi
+	if [ "$(halium_major_minor "$userdata_canonical" 2>/dev/null || true)" != 8:d ]; then
+		halium_policy_panic "RMX1901 userdata major:minor mismatch"
+		return 1
+	fi
+	if [ "$(halium_block_size "$userdata_canonical" 2>/dev/null || true)" != 53862150144 ]; then
+		halium_policy_panic "RMX1901 userdata capacity mismatch"
 		return 1
 	fi
 
-	userdata_type=$(halium_blkid -s TYPE -o value "$userdata_device" 2>/dev/null) || userdata_type=
+	userdata_type=$(halium_blkid -s TYPE -o value "$userdata_canonical" 2>/dev/null) || userdata_type=
 	case "$userdata_type" in
 		ext4)
 			userdata_ro_options=ro,noload
 			;;
 		f2fs)
-			userdata_ro_options=ro
+			userdata_ro_options=ro,norecovery
 			;;
 		*)
 			halium_policy_panic "Unsupported or ambiguous userdata filesystem type"
@@ -127,7 +148,7 @@ safe_mount_userdata() {
 			;;
 	esac
 
-	if ! halium_mount -t "$userdata_type" -o "$userdata_ro_options" "$userdata_device" "$userdata_mountpoint"; then
+	if ! halium_mount -t "$userdata_type" -o "$userdata_ro_options" "$userdata_canonical" "$userdata_mountpoint"; then
 		halium_policy_panic "Could not probe userdata read-only"
 		return 1
 	fi
@@ -136,7 +157,7 @@ safe_mount_userdata() {
 		if [ "${rmx1901_systempart-}" = /dev/disk/by-partlabel/system ]; then
 			halium_log "userdata_payload=system-partition path=${rmx1901_systempart-}"
 		else
-			halium_log "userdata_mount=readonly-rescue type=$userdata_type path=$userdata_device"
+			halium_log "userdata_mount=readonly-rescue type=$userdata_type path=$userdata_canonical"
 			halium_policy_panic "No RMX1901 rootfs payload found on userdata"
 			return 1
 		fi
@@ -147,16 +168,7 @@ safe_mount_userdata() {
 		return 1
 	fi
 
-	if halium_mount -t "$userdata_type" -o rw,noatime "$userdata_device" "$userdata_mountpoint"; then
-		halium_log "userdata_mount=readwrite type=$userdata_type path=$userdata_device"
-		return 0
-	fi
-
-	if halium_mount -t "$userdata_type" -o "$userdata_ro_options" "$userdata_device" "$userdata_mountpoint"; then
-		halium_log "userdata_mount=readonly-rescue type=$userdata_type path=$userdata_device"
-	else
-		halium_log "userdata_mount=rescue-failed type=$userdata_type path=$userdata_device"
-	fi
-	halium_policy_panic "Could not mount userdata read-write; left in read-only rescue mode"
-	return 1
+	# M0/M1 diagnostics must not turn a probe into a writable userdata mount.
+	halium_log "userdata_mount=readonly-probe type=$userdata_type path=$userdata_canonical"
+	return 0
 }
