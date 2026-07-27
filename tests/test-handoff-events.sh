@@ -25,8 +25,8 @@ if grep -Fq '>/dev/kmsg 2>/dev/null || true' "$HALIUM"; then
 fi
 
 BASE_INIT_PATCH="$PROJECT_ROOT/patches/0001-rmx1901-record-base-init-handoff-events.patch"
-grep -Fq 'CONSOLE_OPEN_FAILED "path=${rootmnt}/dev/console errno=${rmx1901_console_errno}"' "$BASE_INIT_PATCH" ||
-	fail 'console failure event has no errno'
+grep -Fq 'CONSOLE_OPEN_FAILED "path=${rootmnt}/dev/console open_status=${rmx1901_console_status}"' "$BASE_INIT_PATCH" ||
+	fail 'console failure event has no explicit open status'
 grep -Fq 'RUN_INIT_EXEC "init=${init} inode=${rmx1901_init_inode} type=${rmx1901_init_type}"' "$BASE_INIT_PATCH" ||
 	fail 'run-init event has no init inode and type'
 
