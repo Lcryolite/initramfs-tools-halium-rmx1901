@@ -6,6 +6,7 @@ PROJECT_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 BASE_INIT_PATCH=$PROJECT_ROOT/patches/0001-rmx1901-record-base-init-handoff-events.patch
 M1_SPEC_ORDER_GATE=$PROJECT_ROOT/tools/check-m1-spec-order.sh
 M1_SPEC_ORDER_SPEC=$PROJECT_ROOT/config/m1-event-order-spec.md
+RECOVERY_HELPER_BUILDER=$PROJECT_ROOT/tools/build-rmx1901-restart-recovery.sh
 
 BASE_IMAGE=${1:?usage: audit-initrd.sh BASE DERIVED BEFORE_MANIFEST AFTER_MANIFEST}
 DERIVED_IMAGE=${2:?usage: audit-initrd.sh BASE DERIVED BEFORE_MANIFEST AFTER_MANIFEST}
@@ -53,7 +54,8 @@ cmp "$RECORDED_BEFORE_SNAPSHOT" "$AUDIT_ROOT/before.manifest"
 cmp "$RECORDED_AFTER_SNAPSHOT" "$AUDIT_ROOT/after.manifest"
 
 write_delta_manifest "$AUDIT_ROOT/before.manifest" "$AUDIT_ROOT/after.manifest" "$AUDIT_ROOT/delta.manifest"
-expected_delta='ADD scripts/halium-rmx1901-debug
+expected_delta='ADD sbin/rmx1901-restart-recovery
+ADD scripts/halium-rmx1901-debug
 ADD scripts/halium-userdata
 DELETE sbin/dumpe2fs
 DELETE sbin/e2fsck
@@ -92,6 +94,24 @@ fi
 cmp "$PROJECT_ROOT/scripts/halium" "$AUDIT_ROOT/derived/scripts/halium"
 cmp "$PROJECT_ROOT/scripts/halium-userdata" "$AUDIT_ROOT/derived/scripts/halium-userdata"
 cmp "$PROJECT_ROOT/scripts/halium-rmx1901-debug" "$AUDIT_ROOT/derived/scripts/halium-rmx1901-debug"
+test -x "$RECOVERY_HELPER_BUILDER" || {
+	printf 'RMX1901 recovery helper builder is missing: %s\n' "$RECOVERY_HELPER_BUILDER" >&2
+	exit 1
+}
+"$RECOVERY_HELPER_BUILDER" "$AUDIT_ROOT/expected-rmx1901-restart-recovery"
+test -x "$AUDIT_ROOT/derived/sbin/rmx1901-restart-recovery" || {
+	printf 'derived recovery helper is missing or not executable\n' >&2
+	exit 1
+}
+cmp "$AUDIT_ROOT/expected-rmx1901-restart-recovery" "$AUDIT_ROOT/derived/sbin/rmx1901-restart-recovery"
+readelf -h "$AUDIT_ROOT/derived/sbin/rmx1901-restart-recovery" | grep -Fq 'Machine:                           AArch64' || {
+	printf 'derived recovery helper is not AArch64\n' >&2
+	exit 1
+}
+if readelf -lW "$AUDIT_ROOT/derived/sbin/rmx1901-restart-recovery" | grep -Fq 'INTERP'; then
+	printf 'derived recovery helper has a program interpreter\n' >&2
+	exit 1
+fi
 sh -n "$AUDIT_ROOT/derived/scripts/halium"
 for handoff_stage in \
 	CMDLINE_PARSED ROOT_DEVICE_RESOLVED USERDATA_PROBED ROOTFS_MOUNTED \

@@ -58,6 +58,12 @@ for tool in e2fsck resize2fs dumpe2fs; do
 done
 [ -f "$DERIVED_EXTRACTED/scripts/halium-userdata" ] || fail "safe policy missing from derived initrd"
 [ -f "$DERIVED_EXTRACTED/scripts/halium-rmx1901-debug" ] || fail "diagnostic policy missing from derived initrd"
+[ -x "$DERIVED_EXTRACTED/sbin/rmx1901-restart-recovery" ] || fail "recovery helper missing from derived initrd"
+readelf -h "$DERIVED_EXTRACTED/sbin/rmx1901-restart-recovery" | grep -Fq 'Machine:                           AArch64' ||
+	fail "derived recovery helper is not AArch64"
+if readelf -lW "$DERIVED_EXTRACTED/sbin/rmx1901-restart-recovery" | grep -Fq 'INTERP'; then
+	fail "derived recovery helper has a program interpreter"
+fi
 for stage in DEV_MOVE_BEGIN DEV_MOVE_DONE CONSOLE_OPEN_OK CONSOLE_OPEN_FAILED \
   RUN_MOVE_BEGIN RUN_MOVE_DONE HANDOFF_MARKER_VISIBLE HANDOFF_MARKER_MISSING RUN_INIT_EXEC; do
   grep -Fq "$stage" "$DERIVED_EXTRACTED/init" || fail "base init event is missing: $stage"
@@ -69,7 +75,8 @@ HALIUM_POLICY_UNDER_TEST="$DERIVED_EXTRACTED/scripts/halium-userdata" \
 RMX1901_DEBUG_POLICY_UNDER_TEST="$DERIVED_EXTRACTED/scripts/halium-rmx1901-debug" \
 	/bin/sh "$PROJECT_ROOT/tests/test-debug-rndis.sh" >/dev/null || fail "packed diagnostic policy behavior failed"
 
-expected_delta='ADD scripts/halium-rmx1901-debug
+expected_delta='ADD sbin/rmx1901-restart-recovery
+ADD scripts/halium-rmx1901-debug
 ADD scripts/halium-userdata
 DELETE sbin/dumpe2fs
 DELETE sbin/e2fsck
@@ -77,6 +84,23 @@ DELETE sbin/resize2fs
 REPLACE init
 REPLACE scripts/halium'
 [ "$(cat "$OUT_ONE/initrd.delta.manifest")" = "$expected_delta" ] || fail "archive changed paths outside allowlist"
+
+TAMPERED_TREE=$TEST_ROOT/tampered-helper-tree
+TAMPERED_IMAGE=$TEST_ROOT/tampered-helper.img
+TAMPERED_AFTER=$TEST_ROOT/tampered-helper.after.manifest
+cp -a "$DERIVED_EXTRACTED" "$TAMPERED_TREE"
+# ELF .text begins at file offset 0xb0 for this fixed freestanding helper;
+# mutate an executed instruction rather than unused ELF-header padding.
+printf '\001' | dd of="$TAMPERED_TREE/sbin/rmx1901-restart-recovery" bs=1 seek=176 conv=notrunc status=none
+(
+	. "$PROJECT_ROOT/tools/archive-lib.sh"
+	pack_initrd "$TAMPERED_TREE" "$TAMPERED_IMAGE"
+	manifest_tree "$TAMPERED_TREE" "$TAMPERED_AFTER"
+)
+if "$PROJECT_ROOT/tools/audit-initrd.sh" "$BASE_IMAGE" "$TAMPERED_IMAGE" \
+	"$OUT_ONE/initrd.before.manifest" "$TAMPERED_AFTER" >/dev/null 2>&1; then
+	fail "audit accepted a modified recovery helper"
+fi
 
 created=$(jq -r '.creationInfo.created' "$OUT_ONE/initrd.spdx.json")
 [ "$created" = 2023-01-17T13:46:06Z ] || fail "SBOM epoch does not match pinned release timestamp"

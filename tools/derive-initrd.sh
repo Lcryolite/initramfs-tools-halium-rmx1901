@@ -13,6 +13,7 @@ BASE_INIT_PATCH=$PROJECT_ROOT/patches/0001-rmx1901-record-base-init-handoff-even
 BASE_SNAPSHOT_TOOL=$PROJECT_ROOT/tools/snapshot-regular-file.py
 M1_SPEC_ORDER_GATE=$PROJECT_ROOT/tools/check-m1-spec-order.sh
 M1_SPEC_ORDER_SPEC=$PROJECT_ROOT/config/m1-event-order-spec.md
+RECOVERY_HELPER_BUILDER=$PROJECT_ROOT/tools/build-rmx1901-restart-recovery.sh
 
 if ! "$M1_SPEC_ORDER_GATE" "$M1_SPEC_ORDER_SPEC"; then
 	printf 'M1 source/spec order gate failed\n' >&2
@@ -52,6 +53,13 @@ test -f "$BASE_INIT_PATCH" || {
 install -m 0644 "$PROJECT_ROOT/scripts/halium" "$UNPACKED/scripts/halium"
 install -m 0644 "$PROJECT_ROOT/scripts/halium-userdata" "$UNPACKED/scripts/halium-userdata"
 install -m 0644 "$PROJECT_ROOT/scripts/halium-rmx1901-debug" "$UNPACKED/scripts/halium-rmx1901-debug"
+test -x "$RECOVERY_HELPER_BUILDER" || {
+	printf 'RMX1901 recovery helper builder is missing: %s\n' "$RECOVERY_HELPER_BUILDER" >&2
+	exit 1
+}
+RECOVERY_HELPER=$BUILD_ROOT/rmx1901-restart-recovery
+"$RECOVERY_HELPER_BUILDER" "$RECOVERY_HELPER"
+install -m 0755 "$RECOVERY_HELPER" "$UNPACKED/sbin/rmx1901-restart-recovery"
 rm -f \
 	"$UNPACKED/sbin/e2fsck" \
 	"$UNPACKED/sbin/resize2fs" \
@@ -65,7 +73,8 @@ touch -h -d "@$FIXED_SOURCE_DATE_EPOCH" \
 	"$UNPACKED/init" \
 	"$UNPACKED/scripts/halium" \
 	"$UNPACKED/scripts/halium-userdata" \
-	"$UNPACKED/scripts/halium-rmx1901-debug"
+	"$UNPACKED/scripts/halium-rmx1901-debug" \
+	"$UNPACKED/sbin/rmx1901-restart-recovery"
 
 manifest_tree "$UNPACKED" "$OUTPUT_DIRECTORY/initrd.after.manifest"
 write_delta_manifest \
@@ -73,7 +82,8 @@ write_delta_manifest \
 	"$OUTPUT_DIRECTORY/initrd.after.manifest" \
 	"$OUTPUT_DIRECTORY/initrd.delta.manifest"
 
-expected_delta='ADD scripts/halium-rmx1901-debug
+expected_delta='ADD sbin/rmx1901-restart-recovery
+ADD scripts/halium-rmx1901-debug
 ADD scripts/halium-userdata
 DELETE sbin/dumpe2fs
 DELETE sbin/e2fsck
