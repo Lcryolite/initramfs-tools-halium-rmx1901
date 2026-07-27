@@ -34,8 +34,13 @@ halium_policy_panic() {
 
 validate_rmx1901_systempart_cmdline() {
 	rmx1901_systempart=
+	rmx1901_systempart_canonical=
 	systempart_count=0
 	systempart_candidate=
+	case $- in
+		*f*) systempart_restore_glob=0 ;;
+		*) set -f; systempart_restore_glob=1 ;;
+	esac
 	for cmdline_word in $1; do
 		case "$cmdline_word" in
 			systempart=*)
@@ -44,6 +49,9 @@ validate_rmx1901_systempart_cmdline() {
 				;;
 		esac
 	done
+	if [ "$systempart_restore_glob" -eq 1 ]; then
+		set +f
+	fi
 
 	if [ "$systempart_count" -gt 1 ]; then
 		halium_policy_panic "Multiple systempart command-line values"
@@ -68,6 +76,31 @@ validate_rmx1901_systempart_cmdline() {
 	fi
 
 	rmx1901_systempart=$systempart_candidate
+	rmx1901_systempart_canonical=$systempart_canonical
+	return 0
+}
+
+safe_mount_rmx1901_systempart() {
+	systempart_mountpoint=$1
+	if [ "${rmx1901_systempart-}" != /dev/block/by-name/system ] ||
+		[ "${rmx1901_systempart_canonical-}" != /dev/block/sda11 ]; then
+		halium_policy_panic "RMX1901 systempart was not validated"
+		return 1
+	fi
+
+	systempart_current=$(halium_canonical_path "$rmx1901_systempart" 2>/dev/null) || systempart_current=
+	if [ "$systempart_current" != "$rmx1901_systempart_canonical" ]; then
+		halium_policy_panic "RMX1901 systempart changed before mount"
+		return 1
+	fi
+	if ! halium_is_block "$rmx1901_systempart_canonical"; then
+		halium_policy_panic "RMX1901 systempart canonical target is not a block device"
+		return 1
+	fi
+	if ! halium_mount -o rw "$rmx1901_systempart_canonical" "$systempart_mountpoint"; then
+		halium_policy_panic "Could not mount validated RMX1901 system partition"
+		return 1
+	fi
 	return 0
 }
 

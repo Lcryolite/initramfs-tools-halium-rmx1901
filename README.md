@@ -14,6 +14,9 @@ This local fork replaces the legacy userdata path with a fail-closed policy:
   `systempart=/dev/block/by-name/system`, that alias resolves exactly to the
   RMX1901 system block device `/dev/block/sda11`, and the target is a block
   device;
+- retain the canonical system device, re-resolve and re-check the alias
+  immediately before mounting, and mount the canonical device rather than the
+  mutable alias;
 - never run filesystem repair, resize, or format utilities at boot;
 - attempt a read-only rescue mount and enter Halium panic if writable mounting fails.
 
@@ -21,6 +24,9 @@ For both layouts, userdata must first identify unambiguously as ext4 or f2fs,
 mount read-only with the filesystem-specific safe options, and unmount cleanly
 before the first read-write attempt. Other, malformed, duplicate, dynamic, or
 non-canonical `systempart` values fail closed before userdata is mounted.
+The parser disables pathname expansion while reading command-line words, and a
+failed validated-system mount enters Halium panic instead of continuing with a
+missing root filesystem.
 
 Run the behavior fixtures with:
 

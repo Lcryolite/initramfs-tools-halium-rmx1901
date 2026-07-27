@@ -18,6 +18,9 @@ case "$name" in
 		;;
 	mount)
 		record "$@"
+		if [ "${FAIL_SYSTEM_MOUNT-0}" = 1 ] && [ "$*" = '-o rw /dev/block/sda11 /halium-system' ]; then
+			exit 1
+		fi
 		case " $* " in
 			*" -o ro,noload "*|*" -o ro "*)
 				if [ "${FAIL_RO-0}" = 1 ]; then exit 1; fi
@@ -41,7 +44,12 @@ case "$name" in
 		;;
 	canonical-path)
 		record "$@"
-		printf '%s\n' "${CANONICAL_PATH-}"
+		canonical_call_count=$(grep -c '^canonical-path|' "$CALL_LOG")
+		if [ "$canonical_call_count" -gt 1 ] && [ -n "${CANONICAL_PATH_AFTER_FIRST-}" ]; then
+			printf '%s\n' "$CANONICAL_PATH_AFTER_FIRST"
+		else
+			printf '%s\n' "${CANONICAL_PATH-}"
+		fi
 		;;
 	log|panic)
 		record "$@"

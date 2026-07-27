@@ -226,6 +226,46 @@ test_malformed_systempart_value_is_rejected_without_path_resolution() {
 		'panic|Unsafe RMX1901 systempart command-line value'
 }
 
+test_systempart_glob_is_rejected_even_when_cwd_can_expand_it_to_allowlisted_path() {
+	mkdir -p "$FIXTURE_ROOT/systempart=/dev/block/by-name"
+	: >"$FIXTURE_ROOT/systempart=/dev/block/by-name/system"
+	original_directory=$PWD
+	cd "$FIXTURE_ROOT" || return 1
+	assert_failure validate_rmx1901_systempart_cmdline \
+		'systempart=/dev/block/by-name/*' || {
+			cd "$original_directory" || return 1
+			return 1
+		}
+	cd "$original_directory" || return 1
+	assert_eq "$(cat "$CALL_LOG")" \
+		'panic|Unsafe RMX1901 systempart command-line value' \
+		'glob-expanded systempart bypassed the literal allowlist'
+}
+
+test_systempart_alias_is_revalidated_after_userdata_before_mount() {
+	CANONICAL_PATH_AFTER_FIRST=/dev/block/sde15; export CANONICAL_PATH_AFTER_FIRST
+	assert_success validate_rmx1901_systempart_cmdline \
+		'systempart=/dev/block/by-name/system' || return 1
+	assert_failure safe_mount_rmx1901_systempart /halium-system || return 1
+	assert_eq "$(cat "$CALL_LOG")" "canonical-path|/dev/block/by-name/system
+is-block|/dev/block/sda11
+canonical-path|/dev/block/by-name/system
+panic|RMX1901 systempart changed before mount" "systempart alias TOCTOU was not rejected"
+}
+
+test_systempart_mount_uses_saved_canonical_path_and_propagates_failure() {
+	FAIL_SYSTEM_MOUNT=1; export FAIL_SYSTEM_MOUNT
+	assert_success validate_rmx1901_systempart_cmdline \
+		'systempart=/dev/block/by-name/system' || return 1
+	assert_failure safe_mount_rmx1901_systempart /halium-system || return 1
+	assert_eq "$(cat "$CALL_LOG")" "canonical-path|/dev/block/by-name/system
+is-block|/dev/block/sda11
+canonical-path|/dev/block/by-name/system
+is-block|/dev/block/sda11
+mount|-o|rw|/dev/block/sda11|/halium-system
+panic|Could not mount validated RMX1901 system partition" "systempart mount failure was ignored or alias was mounted"
+}
+
 for test_case in \
 	test_ext4_uses_readonly_probe_before_writable_mount \
 	test_f2fs_uses_f2fs_readonly_probe_before_writable_mount \
@@ -246,7 +286,10 @@ for test_case in \
 	test_system_alias_resolving_elsewhere_is_rejected \
 	test_non_block_canonical_system_target_is_rejected \
 	test_duplicate_systempart_arguments_are_rejected \
-	test_malformed_systempart_value_is_rejected_without_path_resolution
+	test_malformed_systempart_value_is_rejected_without_path_resolution \
+	test_systempart_glob_is_rejected_even_when_cwd_can_expand_it_to_allowlisted_path \
+	test_systempart_alias_is_revalidated_after_userdata_before_mount \
+	test_systempart_mount_uses_saved_canonical_path_and_propagates_failure
 do
 	run_test "$test_case"
 done

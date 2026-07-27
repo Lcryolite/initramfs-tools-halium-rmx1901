@@ -14,13 +14,15 @@ fixture_start() {
 	export CALL_LOG
 	export BLKID_OUTPUT=ext4 IS_BLOCK=1 HAS_PAYLOAD=1
 	export CANONICAL_PATH=/dev/block/sda11
-	export FAIL_RO=0 FAIL_RW=0 FAIL_UMOUNT=0
+	unset CANONICAL_PATH_AFTER_FIRST
+	export FAIL_RO=0 FAIL_RW=0 FAIL_UMOUNT=0 FAIL_SYSTEM_MOUNT=0
 	# Poison the old environment injection interface. Production code must use
 	# fixed wrapper functions, which this test shell overrides below.
 	export HALIUM_BLKID=/bin/false HALIUM_MOUNT=/bin/false HALIUM_UMOUNT=/bin/false
 	export HALIUM_IS_BLOCK=/bin/false HALIUM_HAS_PAYLOAD=/bin/false
 	export HALIUM_LOG=/bin/false HALIUM_PANIC=/bin/false
 	rmx1901_systempart=
+	rmx1901_systempart_canonical=
 }
 
 fixture_stop() {
