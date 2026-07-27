@@ -18,7 +18,7 @@ case "$name" in
 		;;
 	mount)
 		record "$@"
-		if [ "${FAIL_SYSTEM_MOUNT-0}" = 1 ] && [ "$*" = '-o rw /dev/block/sda11 /halium-system' ]; then
+		if [ "${FAIL_SYSTEM_MOUNT-0}" = 1 ] && [ "$*" = '-o rw /dev/sda11 /halium-system' ]; then
 			exit 1
 		fi
 		case " $* " in

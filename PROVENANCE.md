@@ -25,12 +25,12 @@ The mutable release `target_commitish` is not used as a trust anchor. The fixed 
 
 ## Derived artifact
 
-- Path: `out/systempart-partlabel/initrd.img-touch-arm64-rmx1901-safe`
-- Size: `3,941,303` bytes
-- SHA-256: `5acabc4589df236b9bb686500dcabcbb4e44e4778d332e5daa68617037a98934`
+- Path: `out/systempart-devnode/initrd.img-touch-arm64-rmx1901-safe`
+- Size: `3,941,298` bytes
+- SHA-256: `b3582e99c21eab2dd2912fc2e1c8c128d9c03fab7147452569d0b2da6bf44e6a`
 - Fixed build epoch: `1673963166` (`2023-01-17T13:46:06Z`)
-- SPDX document: `out/systempart-partlabel/initrd.spdx.json` and tracked copy `sbom/initrd.spdx.json`
-- Before/after/delta manifests: `out/systempart-partlabel/initrd.{before,after,delta}.manifest`
+- SPDX document: `out/systempart-devnode/initrd.spdx.json` and tracked copy `sbom/initrd.spdx.json`
+- Before/after/delta manifests: `out/systempart-devnode/initrd.{before,after,delta}.manifest`
 
 The content/mode delta is exactly:
 
@@ -57,7 +57,7 @@ All directory mtimes are normalized to the fixed build epoch. This metadata norm
 
 Two independent derivations from the fixed base produced the same SHA-256. Cross-toolchain byte identity still depends on the listed cpio/gzip implementations; a digest-pinned builder image remains desirable before publishing externally.
 
-The RMX1901 system partition policy accepts only `systempart=/dev/disk/by-partlabel/system`, the alias created by the pinned initrd's udev rules. It must resolve to the fixed canonical block device `/dev/block/sda11` both during command-line validation and immediately before mount. The legacy `/dev/block/by-name/system` alias is explicitly rejected.
+The RMX1901 system partition policy accepts only `systempart=/dev/disk/by-partlabel/system`, the alias created by the pinned initrd's udev rules. It must resolve to the fixed early-udev block device `/dev/sda11` both during command-line validation and immediately before mount. Recovery-only `/dev/block/sda11` and legacy `/dev/block/by-name/system` paths are explicitly rejected.
 
 The production builder hard-codes the base SHA and release epoch; inherited environment variables cannot replace either trust anchor. The independent auditor verifies the base SHA before extracting or comparing caller-provided manifests. gzip, cpio, find, sort, stat, and hashing stages are separately checked so an intermediate failure cannot be hidden by the final process in a shell pipeline.
 

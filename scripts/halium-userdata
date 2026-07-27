@@ -66,7 +66,7 @@ validate_rmx1901_systempart_cmdline() {
 	fi
 
 	systempart_canonical=$(halium_canonical_path "$systempart_candidate" 2>/dev/null) || systempart_canonical=
-	if [ "$systempart_canonical" != /dev/block/sda11 ]; then
+	if [ "$systempart_canonical" != /dev/sda11 ]; then
 		halium_policy_panic "RMX1901 systempart canonical target mismatch"
 		return 1
 	fi
@@ -83,7 +83,7 @@ validate_rmx1901_systempart_cmdline() {
 safe_mount_rmx1901_systempart() {
 	systempart_mountpoint=$1
 	if [ "${rmx1901_systempart-}" != /dev/disk/by-partlabel/system ] ||
-		[ "${rmx1901_systempart_canonical-}" != /dev/block/sda11 ]; then
+		[ "${rmx1901_systempart_canonical-}" != /dev/sda11 ]; then
 		halium_policy_panic "RMX1901 systempart was not validated"
 		return 1
 	fi

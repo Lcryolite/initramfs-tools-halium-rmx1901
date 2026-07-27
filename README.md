@@ -12,7 +12,7 @@ This local fork replaces the legacy userdata path with a fail-closed policy:
   legacy userdata-image layout;
 - allow payload-free userdata only when the kernel command line contains one
   `systempart=/dev/disk/by-partlabel/system`, that alias resolves exactly to the
-  RMX1901 system block device `/dev/block/sda11`, and the target is a block
+  RMX1901 early-udev system block device `/dev/sda11`, and the target is a block
   device;
 - reject the legacy `/dev/block/by-name/system` alias because the pinned initrd
   udev rules create `/dev/disk/by-partlabel/*`, not `/dev/block/by-name/*`;

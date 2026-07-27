@@ -31,7 +31,7 @@
 
 - Command: `/bin/sh tests/test-safe-userdata.sh`
 - Exit: `0`
-- Result: 24/24 named behavior fixtures passed, including partlabel acceptance, legacy-alias rejection, canonical `/dev/block/sda11` validation, pre-mount alias revalidation, and canonical-only mounting.
+- Result: all named behavior fixtures passed, including partlabel acceptance, legacy/recovery-only path rejection, canonical `/dev/sda11` validation, pre-mount alias revalidation, and canonical-only mounting.
 
 ## Deterministic initrd derivation
 

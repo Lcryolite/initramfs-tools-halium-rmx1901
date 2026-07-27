@@ -13,7 +13,7 @@ fixture_start() {
 	done
 	export CALL_LOG
 	export BLKID_OUTPUT=ext4 IS_BLOCK=1 HAS_PAYLOAD=1
-	export CANONICAL_PATH=/dev/block/sda11
+	export CANONICAL_PATH=/dev/sda11
 	unset CANONICAL_PATH_AFTER_FIRST
 	export FAIL_RO=0 FAIL_RW=0 FAIL_UMOUNT=0 FAIL_SYSTEM_MOUNT=0
 	# Poison the old environment injection interface. Production code must use

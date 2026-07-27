@@ -4,14 +4,14 @@
 
 **Goal:** Make the RMX1901 initrd accept the system partition alias that its udev rules actually create while preserving fail-closed canonical-device validation.
 
-**Architecture:** The kernel command line may contain exactly one `systempart=/dev/disk/by-partlabel/system`. The policy resolves that fixed alias to `/dev/block/sda11`, confirms it is a block device, saves both values, re-resolves the alias immediately before mount, and mounts only the saved canonical path.
+**Architecture:** The kernel command line may contain exactly one `systempart=/dev/disk/by-partlabel/system`. The policy resolves that fixed alias to the early-udev node `/dev/sda11`, confirms it is a block device, saves both values, re-resolves the alias immediately before mount, and mounts only the saved canonical path.
 
 **Tech Stack:** POSIX shell, shell fixture tests, deterministic cpio/gzip derivation.
 
 ## Global Constraints
 
 - Reject `/dev/block/by-name/system` and every other command-line alias.
-- Preserve the `/dev/block/sda11` canonical allowlist, block-device check, and pre-mount TOCTOU revalidation.
+- Preserve the exact `/dev/sda11` early-udev allowlist, block-device check, and pre-mount TOCTOU revalidation.
 - Modify only this initrd repository.
 - Update README, provenance, TDD evidence, and verification records with exact artifact facts.
 
@@ -25,7 +25,7 @@
 
 **Interfaces:**
 - Consumes: `validate_rmx1901_systempart_cmdline(cmdline)` and `safe_mount_rmx1901_systempart(mountpoint)`.
-- Produces: validated `rmx1901_systempart=/dev/disk/by-partlabel/system` and `rmx1901_systempart_canonical=/dev/block/sda11`.
+- Produces: validated `rmx1901_systempart=/dev/disk/by-partlabel/system` and `rmx1901_systempart_canonical=/dev/sda11`.
 
 - [x] **Step 1: Write failing behavior tests**
 
@@ -39,7 +39,7 @@
 
 - [x] **Step 3: Implement the minimal policy change**
 
-  Replace the accepted alias and all validated-state comparisons/logging in `scripts/halium-userdata` with `/dev/disk/by-partlabel/system`; keep `/dev/block/sda11` unchanged.
+  Replace the accepted alias and all validated-state comparisons/logging in `scripts/halium-userdata` with `/dev/disk/by-partlabel/system`; bind the canonical target to the observed early-udev node `/dev/sda11`.
 
 - [x] **Step 4: Verify GREEN**
 
@@ -54,7 +54,7 @@
 - Modify: `PROVENANCE.md`
 - Modify: `docs/tdd-evidence.md`
 - Modify: `docs/verification.md`
-- Generated ignored artifact: `out/systempart-partlabel/initrd.img-touch-arm64-rmx1901-safe`
+- Generated ignored artifact: `out/systempart-devnode/initrd.img-touch-arm64-rmx1901-safe`
 
 **Interfaces:**
 - Consumes: fixed base asset and `tools/derive-initrd.sh`.

@@ -137,7 +137,7 @@ test_valid_rmx1901_systempart_allows_userdata_without_legacy_payload() {
 		'console=tty0 systempart=/dev/disk/by-partlabel/system androidboot.mode=normal' || return 1
 	assert_success safe_mount_userdata "$DEVICE" "$MOUNTPOINT" || return 1
 	assert_eq "$(cat "$CALL_LOG")" "canonical-path|/dev/disk/by-partlabel/system
-is-block|/dev/block/sda11
+is-block|/dev/sda11
 is-block|$DEVICE
 blkid|-s|TYPE|-o|value|$DEVICE
 mount|-t|ext4|-o|ro,noload|$DEVICE|$MOUNTPOINT
@@ -181,7 +181,7 @@ assert_systempart_rejected() {
 
 test_raw_canonical_system_path_is_not_an_allowed_cmdline_alias() {
 	assert_systempart_rejected \
-		'systempart=/dev/block/sda11' \
+		'systempart=/dev/sda11' \
 		'panic|Unsafe RMX1901 systempart command-line value'
 }
 
@@ -211,12 +211,31 @@ test_system_alias_resolving_elsewhere_is_rejected() {
 panic|RMX1901 systempart canonical target mismatch"
 }
 
+test_system_alias_resolving_to_recovery_only_android_path_is_rejected() {
+	CANONICAL_PATH=/dev/block/sda11; export CANONICAL_PATH
+	assert_systempart_rejected \
+		'systempart=/dev/disk/by-partlabel/system' \
+		"canonical-path|/dev/disk/by-partlabel/system
+panic|RMX1901 systempart canonical target mismatch"
+}
+
+test_system_alias_resolving_to_nearby_early_block_paths_is_rejected() {
+	for wrong_target in /dev/sda12 /dev/sde11; do
+		: >"$CALL_LOG"
+		CANONICAL_PATH=$wrong_target; export CANONICAL_PATH
+		assert_systempart_rejected \
+			'systempart=/dev/disk/by-partlabel/system' \
+			"canonical-path|/dev/disk/by-partlabel/system
+panic|RMX1901 systempart canonical target mismatch" || return 1
+	done
+}
+
 test_non_block_canonical_system_target_is_rejected() {
 	IS_BLOCK=0; export IS_BLOCK
 	assert_systempart_rejected \
 		'systempart=/dev/disk/by-partlabel/system' \
 		"canonical-path|/dev/disk/by-partlabel/system
-is-block|/dev/block/sda11
+is-block|/dev/sda11
 panic|RMX1901 systempart canonical target is not a block device"
 }
 
@@ -254,7 +273,7 @@ test_systempart_alias_is_revalidated_after_userdata_before_mount() {
 		'systempart=/dev/disk/by-partlabel/system' || return 1
 	assert_failure safe_mount_rmx1901_systempart /halium-system || return 1
 	assert_eq "$(cat "$CALL_LOG")" "canonical-path|/dev/disk/by-partlabel/system
-is-block|/dev/block/sda11
+is-block|/dev/sda11
 canonical-path|/dev/disk/by-partlabel/system
 panic|RMX1901 systempart changed before mount" "systempart alias TOCTOU was not rejected"
 }
@@ -265,10 +284,10 @@ test_systempart_mount_uses_saved_canonical_path_and_propagates_failure() {
 		'systempart=/dev/disk/by-partlabel/system' || return 1
 	assert_failure safe_mount_rmx1901_systempart /halium-system || return 1
 	assert_eq "$(cat "$CALL_LOG")" "canonical-path|/dev/disk/by-partlabel/system
-is-block|/dev/block/sda11
+is-block|/dev/sda11
 canonical-path|/dev/disk/by-partlabel/system
-is-block|/dev/block/sda11
-mount|-o|rw|/dev/block/sda11|/halium-system
+is-block|/dev/sda11
+mount|-o|rw|/dev/sda11|/halium-system
 panic|Could not mount validated RMX1901 system partition" "systempart mount failure was ignored or alias was mounted"
 }
 
@@ -291,6 +310,8 @@ for test_case in \
 	test_other_by_name_partition_is_rejected \
 	test_legacy_by_name_system_alias_is_rejected \
 	test_system_alias_resolving_elsewhere_is_rejected \
+	test_system_alias_resolving_to_recovery_only_android_path_is_rejected \
+	test_system_alias_resolving_to_nearby_early_block_paths_is_rejected \
 	test_non_block_canonical_system_target_is_rejected \
 	test_duplicate_systempart_arguments_are_rejected \
 	test_malformed_systempart_value_is_rejected_without_path_resolution \
