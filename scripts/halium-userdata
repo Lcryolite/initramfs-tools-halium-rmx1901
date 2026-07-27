@@ -40,6 +40,32 @@ halium_block_size() {
 	blockdev --getsize64 "$1"
 }
 
+halium_dmesg() {
+	dmesg
+}
+
+validate_rmx1901_userdata() {
+	rmx1901_userdata_canonical=$(halium_canonical_path "$1" 2>/dev/null) || rmx1901_userdata_canonical=
+
+	if [ "$rmx1901_userdata_canonical" != /dev/sda13 ]; then
+		halium_policy_panic "RMX1901 userdata canonical target mismatch"
+		return 1
+	fi
+	if ! halium_is_block "$rmx1901_userdata_canonical"; then
+		halium_policy_panic "RMX1901 userdata canonical target is not a block device"
+		return 1
+	fi
+	if [ "$(halium_major_minor "$rmx1901_userdata_canonical" 2>/dev/null || true)" != 8:d ]; then
+		halium_policy_panic "RMX1901 userdata major:minor mismatch"
+		return 1
+	fi
+	if [ "$(halium_block_size "$rmx1901_userdata_canonical" 2>/dev/null || true)" != 53862150144 ]; then
+		halium_policy_panic "RMX1901 userdata capacity mismatch"
+		return 1
+	fi
+	return 0
+}
+
 validate_rmx1901_systempart_cmdline() {
 	rmx1901_systempart=
 	rmx1901_systempart_canonical=
@@ -115,24 +141,11 @@ safe_mount_rmx1901_systempart() {
 safe_mount_userdata() {
 	userdata_device=$1
 	userdata_mountpoint=$2
-	userdata_canonical=$(halium_canonical_path "$userdata_device" 2>/dev/null) || userdata_canonical=
 
-	if [ "$userdata_canonical" != /dev/sda13 ]; then
-		halium_policy_panic "RMX1901 userdata canonical target mismatch"
+	if ! validate_rmx1901_userdata "$userdata_device"; then
 		return 1
 	fi
-	if ! halium_is_block "$userdata_canonical"; then
-		halium_policy_panic "RMX1901 userdata canonical target is not a block device"
-		return 1
-	fi
-	if [ "$(halium_major_minor "$userdata_canonical" 2>/dev/null || true)" != 8:d ]; then
-		halium_policy_panic "RMX1901 userdata major:minor mismatch"
-		return 1
-	fi
-	if [ "$(halium_block_size "$userdata_canonical" 2>/dev/null || true)" != 53862150144 ]; then
-		halium_policy_panic "RMX1901 userdata capacity mismatch"
-		return 1
-	fi
+	userdata_canonical=$rmx1901_userdata_canonical
 
 	userdata_type=$(halium_blkid -s TYPE -o value "$userdata_canonical" 2>/dev/null) || userdata_type=
 	case "$userdata_type" in
@@ -150,6 +163,29 @@ safe_mount_userdata() {
 
 	if ! halium_mount -t "$userdata_type" -o "$userdata_ro_options" "$userdata_canonical" "$userdata_mountpoint"; then
 		halium_policy_panic "Could not probe userdata read-only"
+		return 1
+	fi
+
+	# A read-only F2FS probe must not replay fsync data.  Check the kernel
+	# messages before reading any persistent payload, then tear down the probe
+	# before reporting the unsafe state.
+	if [ "$userdata_type" = f2fs ] && halium_dmesg 2>/dev/null | grep -Fq 'recover fsync data'; then
+		if ! halium_umount "$userdata_mountpoint"; then
+			halium_policy_panic "Could not unmount userdata read-only probe"
+			return 1
+		fi
+		halium_policy_panic "F2FS recovery detected during read-only userdata probe"
+		return 1
+	fi
+
+	# Re-resolve the alias and bind all immutable identity properties after the
+	# probe mount, before checking for rootfs files on persistent storage.
+	if ! validate_rmx1901_userdata "$userdata_device"; then
+		if ! halium_umount "$userdata_mountpoint"; then
+			halium_policy_panic "Could not unmount userdata read-only probe"
+			return 1
+		fi
+		halium_policy_panic "RMX1901 userdata changed after read-only probe"
 		return 1
 	fi
 

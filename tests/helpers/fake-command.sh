@@ -53,11 +53,25 @@ case "$name" in
 		;;
 	major-minor)
 		record "$@"
-		printf '%s\n' "${MAJOR_MINOR-}"
+		major_minor_call_count=$(grep -c '^major-minor|' "$CALL_LOG")
+		if [ "$major_minor_call_count" -gt 1 ] && [ -n "${MAJOR_MINOR_AFTER_FIRST-}" ]; then
+			printf '%s\n' "$MAJOR_MINOR_AFTER_FIRST"
+		else
+			printf '%s\n' "${MAJOR_MINOR-}"
+		fi
 		;;
 	block-size)
 		record "$@"
-		printf '%s\n' "${BLOCK_SIZE-}"
+		block_size_call_count=$(grep -c '^block-size|' "$CALL_LOG")
+		if [ "$block_size_call_count" -gt 1 ] && [ -n "${BLOCK_SIZE_AFTER_FIRST-}" ]; then
+			printf '%s\n' "$BLOCK_SIZE_AFTER_FIRST"
+		else
+			printf '%s\n' "${BLOCK_SIZE-}"
+		fi
+		;;
+	dmesg)
+		record "$@"
+		printf '%s\n' "${DMESG_OUTPUT-}"
 		;;
 	log|panic)
 		record "$@"

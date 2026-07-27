@@ -14,6 +14,7 @@ halium_has_payload() { "$FAKE_BIN/has-payload" "$@"; }
 halium_canonical_path() { "$FAKE_BIN/canonical-path" "$@"; }
 halium_major_minor() { "$FAKE_BIN/major-minor" "$@"; }
 halium_block_size() { "$FAKE_BIN/block-size" "$@"; }
+halium_dmesg() { "$FAKE_BIN/dmesg" "$@"; }
 halium_log() { "$FAKE_BIN/log" "$@"; }
 halium_policy_panic() { "$FAKE_BIN/panic" "$@"; }
 
@@ -48,6 +49,38 @@ test_userdata_capacity_must_match() {
   grep -Fxq 'panic|RMX1901 userdata capacity mismatch' "$CALL_LOG"
 }
 
+test_userdata_is_revalidated_after_probe_mount() {
+  CANONICAL_PATH_AFTER_FIRST=/dev/sda12; export CANONICAL_PATH_AFTER_FIRST
+  assert_failure safe_mount_userdata "$DEVICE" "$MOUNTPOINT" || return 1
+  grep -Fxq 'panic|RMX1901 userdata changed after read-only probe' "$CALL_LOG" || return 1
+  grep -Fxq "umount|$MOUNTPOINT" "$CALL_LOG" || return 1
+  ! grep -q '^has-payload|' "$CALL_LOG"
+}
+
+test_userdata_major_minor_is_revalidated_after_probe_mount() {
+  MAJOR_MINOR_AFTER_FIRST=8:c; export MAJOR_MINOR_AFTER_FIRST
+  assert_failure safe_mount_userdata "$DEVICE" "$MOUNTPOINT" || return 1
+  grep -Fxq 'panic|RMX1901 userdata changed after read-only probe' "$CALL_LOG" || return 1
+  grep -Fxq "umount|$MOUNTPOINT" "$CALL_LOG" || return 1
+  ! grep -q '^has-payload|' "$CALL_LOG"
+}
+
+test_userdata_capacity_is_revalidated_after_probe_mount() {
+  BLOCK_SIZE_AFTER_FIRST=1; export BLOCK_SIZE_AFTER_FIRST
+  assert_failure safe_mount_userdata "$DEVICE" "$MOUNTPOINT" || return 1
+  grep -Fxq 'panic|RMX1901 userdata changed after read-only probe' "$CALL_LOG" || return 1
+  grep -Fxq "umount|$MOUNTPOINT" "$CALL_LOG" || return 1
+  ! grep -q '^has-payload|' "$CALL_LOG"
+}
+
+test_f2fs_recovery_log_fails_before_persistent_read() {
+  BLKID_OUTPUT=f2fs; DMESG_OUTPUT='f2fs: recover fsync data on readonly fs'; export BLKID_OUTPUT DMESG_OUTPUT
+  assert_failure safe_mount_userdata "$DEVICE" "$MOUNTPOINT" || return 1
+  grep -Fxq 'panic|F2FS recovery detected during read-only userdata probe' "$CALL_LOG" || return 1
+  grep -Fxq "umount|$MOUNTPOINT" "$CALL_LOG" || return 1
+  ! grep -q '^has-payload|' "$CALL_LOG"
+}
+
 test_unknown_filesystem_never_mounts() {
   BLKID_OUTPUT=erofs; export BLKID_OUTPUT
   assert_failure safe_mount_userdata "$DEVICE" "$MOUNTPOINT" || return 1
@@ -59,6 +92,10 @@ for test_name in \
   test_userdata_canonical_path_must_be_sda13 \
   test_userdata_major_minor_must_match \
   test_userdata_capacity_must_match \
+  test_userdata_is_revalidated_after_probe_mount \
+  test_userdata_major_minor_is_revalidated_after_probe_mount \
+  test_userdata_capacity_is_revalidated_after_probe_mount \
+  test_f2fs_recovery_log_fails_before_persistent_read \
   test_unknown_filesystem_never_mounts; do
   run_test "$test_name"
 done
