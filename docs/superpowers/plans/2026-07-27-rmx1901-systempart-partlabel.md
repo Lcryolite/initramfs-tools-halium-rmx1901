@@ -54,7 +54,7 @@
 - Modify: `PROVENANCE.md`
 - Modify: `docs/tdd-evidence.md`
 - Modify: `docs/verification.md`
-- Generated ignored artifact: `out/reviewed/initrd.img-touch-arm64-rmx1901-safe`
+- Generated ignored artifact: `out/systempart-partlabel/initrd.img-touch-arm64-rmx1901-safe`
 
 **Interfaces:**
 - Consumes: fixed base asset and `tools/derive-initrd.sh`.
