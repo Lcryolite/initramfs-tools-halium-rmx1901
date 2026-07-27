@@ -84,8 +84,22 @@ test_f2fs_recovery_log_fails_before_persistent_read() {
 test_f2fs_unreadable_probe_log_fails_before_persistent_read() {
   BLKID_OUTPUT=f2fs; FAIL_DMESG=1; export BLKID_OUTPUT FAIL_DMESG
   assert_failure safe_mount_userdata "$DEVICE" "$MOUNTPOINT" || return 1
-  grep -Fxq 'panic|Could not collect F2FS read-only probe evidence' "$CALL_LOG" || return 1
-  grep -Fxq "umount|$MOUNTPOINT" "$CALL_LOG" || return 1
+  assert_eq "$(grep -E '^(mount[|]|dmesg$|umount[|]|panic[|])' "$CALL_LOG")" "$(printf '%s\n' \
+    "mount|-t|f2fs|-o|ro,norecovery|/dev/sda13|$MOUNTPOINT" \
+    'dmesg' \
+    "umount|$MOUNTPOINT" \
+    'panic|Could not collect F2FS read-only probe evidence')" 'unreadable F2FS evidence must fail after a readonly probe is unmounted' || return 1
+  ! grep -q '^has-payload|' "$CALL_LOG"
+}
+
+test_f2fs_unreadable_probe_log_and_failed_unmount_never_reads_payload() {
+  BLKID_OUTPUT=f2fs; FAIL_DMESG=1; FAIL_UMOUNT=1; export BLKID_OUTPUT FAIL_DMESG FAIL_UMOUNT
+  assert_failure safe_mount_userdata "$DEVICE" "$MOUNTPOINT" || return 1
+  assert_eq "$(grep -E '^(mount[|]|dmesg$|umount[|]|panic[|])' "$CALL_LOG")" "$(printf '%s\n' \
+    "mount|-t|f2fs|-o|ro,norecovery|/dev/sda13|$MOUNTPOINT" \
+    'dmesg' \
+    "umount|$MOUNTPOINT" \
+    'panic|Could not unmount userdata read-only probe')" 'unmount failure after unreadable F2FS evidence must fail closed' || return 1
   ! grep -q '^has-payload|' "$CALL_LOG"
 }
 
@@ -105,6 +119,7 @@ for test_name in \
   test_userdata_capacity_is_revalidated_after_probe_mount \
   test_f2fs_recovery_log_fails_before_persistent_read \
   test_f2fs_unreadable_probe_log_fails_before_persistent_read \
+  test_f2fs_unreadable_probe_log_and_failed_unmount_never_reads_payload \
   test_unknown_filesystem_never_mounts; do
   run_test "$test_name"
 done
