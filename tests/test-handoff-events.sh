@@ -16,6 +16,19 @@ grep -Fq '>>"$RMX1901_HANDOFF_LOG"' "$HALIUM" || fail 'handoff log is not append
 grep -Fq '>/dev/kmsg' "$HALIUM" || fail 'handoff events are not mirrored to kmsg'
 grep -Fq 'RMX1901_HANDOFF_LOG=${RMX1901_HANDOFF_LOG:-/run/rmx1901-handoff.events}' "$HALIUM" ||
 	fail 'handoff log is not located on initramfs tmpfs'
+if grep -Fq '>>"$RMX1901_HANDOFF_LOG" 2>/dev/null || true' "$HALIUM"; then
+
+	fail 'handoff logger silently accepts an unavailable evidence log'
+fi
+if grep -Fq '>/dev/kmsg 2>/dev/null || true' "$HALIUM"; then
+	fail 'handoff logger silently accepts an unavailable kmsg mirror'
+fi
+
+BASE_INIT_PATCH="$PROJECT_ROOT/patches/0001-rmx1901-record-base-init-handoff-events.patch"
+grep -Fq 'CONSOLE_OPEN_FAILED "path=${rootmnt}/dev/console errno=${rmx1901_console_errno}"' "$BASE_INIT_PATCH" ||
+	fail 'console failure event has no errno'
+grep -Fq 'RUN_INIT_EXEC "init=${init} inode=${rmx1901_init_inode} type=${rmx1901_init_type}"' "$BASE_INIT_PATCH" ||
+	fail 'run-init event has no init inode and type'
 
 for stage in \
 	CMDLINE_PARSED ROOT_DEVICE_RESOLVED USERDATA_PROBED ROOTFS_MOUNTED \

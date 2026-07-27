@@ -1,6 +1,6 @@
 --- a/init
 +++ b/init
-@@ -244,11 +244,35 @@
+@@ -244,11 +244,36 @@
  maybe_break bottom
  [ "$quiet" != "y" ] && log_begin_msg "Running /scripts/init-bottom"
  # We expect udev's init-bottom script to move /dev to ${rootmnt}/dev
@@ -14,7 +14,8 @@
 +if : <"${rootmnt}/dev/console" >"${rootmnt}/dev/console"; then
 +	rmx1901_handoff_event CONSOLE_OPEN_OK "path=${rootmnt}/dev/console" || panic "RMX1901 console event failure"
 +else
-+	rmx1901_handoff_event CONSOLE_OPEN_FAILED "path=${rootmnt}/dev/console" || true
++	rmx1901_console_errno=$?
++	rmx1901_handoff_event CONSOLE_OPEN_FAILED "path=${rootmnt}/dev/console errno=${rmx1901_console_errno}" || true
 +	panic "RMX1901 target console unavailable"
 +fi
 +
@@ -37,11 +38,13 @@
  
  validate_init() {
  	run-init -n "${rootmnt}" "${1}"
-@@ -303,6 +327,7 @@
+@@ -303,6 +328,9 @@
  mount -n -o move /proc ${rootmnt}/proc
  
  # Chain to real filesystem
-+rmx1901_handoff_event RUN_INIT_EXEC "init=${init}" || panic "RMX1901 run-init event failure"
++rmx1901_init_inode=$(stat -c '%i' "${rootmnt}${init}" 2>/dev/null) || panic "RMX1901 init inode unavailable"
++rmx1901_init_type=$(stat -c '%F' "${rootmnt}${init}" 2>/dev/null | tr ' ' '_') || panic "RMX1901 init type unavailable"
++rmx1901_handoff_event RUN_INIT_EXEC "init=${init} inode=${rmx1901_init_inode} type=${rmx1901_init_type}" || panic "RMX1901 run-init event failure"
  exec run-init ${drop_caps} ${rootmnt} ${init} "$@" <${rootmnt}/dev/console >${rootmnt}/dev/console 2>&1
  echo "Something went badly wrong in the initramfs."
  panic "Please file a bug on initramfs-tools."

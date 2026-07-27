@@ -41,8 +41,8 @@ rmx1901_handoff_event() {
 	RMX1901_HANDOFF_SEQUENCE=$rmx1901_event_index
 	rmx1901_event_line="RMX1901_HANDOFF sequence=$RMX1901_HANDOFF_SEQUENCE stage=$rmx1901_event_stage"
 	[ "$#" -eq 0 ] || rmx1901_event_line="$rmx1901_event_line $*"
-	printf '%s\n' "$rmx1901_event_line" >>"$RMX1901_HANDOFF_LOG" 2>/dev/null || true
-	printf '<6>initrd: %s\n' "$rmx1901_event_line" >/dev/kmsg 2>/dev/null || true
+	printf '%s\n' "$rmx1901_event_line" >>"$RMX1901_HANDOFF_LOG" 2>/dev/null || return 1
+	printf '<6>initrd: %s\n' "$rmx1901_event_line" >/dev/kmsg 2>/dev/null || return 1
 }
 
 _log_msg() {
