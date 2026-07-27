@@ -12,6 +12,11 @@ The following gates apply to the committed source and ignored local artifact:
 8. POSIX-shell syntax checks for every maintained shell script.
 9. Static search for prohibited tools, invocations, and mount options.
 10. `git diff --check` and repository-boundary inspection.
+11. `/bin/sh tests/test-rmx1901-restart-recovery.sh` — verifies the helper is
+    static ELF64/AArch64, has no argument ABI or interpreter, uses only the
+    `reboot(RESTART2, "recovery")` syscall sequence, and returns non-zero if
+    that syscall returns. The packed-archive derivation test additionally
+    rejects an automatically invoked or byte-modified helper.
 
 The final fresh outputs and commit IDs are recorded after the verification run rather than inferred from earlier runs.
 

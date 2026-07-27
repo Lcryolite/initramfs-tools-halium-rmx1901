@@ -64,6 +64,20 @@ readelf -h "$DERIVED_EXTRACTED/sbin/rmx1901-restart-recovery" | grep -Fq 'Machin
 if readelf -lW "$DERIVED_EXTRACTED/sbin/rmx1901-restart-recovery" | grep -Fq 'INTERP'; then
 	fail "derived recovery helper has a program interpreter"
 fi
+# Presence alone must never alter a normal boot or panic path.  Invocation is
+# reserved for the evidence-complete host controller through the panic shell.
+for automatic_path in \
+	"$DERIVED_EXTRACTED/init" \
+	"$DERIVED_EXTRACTED/scripts/halium" \
+	"$DERIVED_EXTRACTED/scripts/halium-userdata" \
+	"$DERIVED_EXTRACTED/scripts/halium-rmx1901-debug" \
+	"$DERIVED_EXTRACTED/scripts/functions" \
+	"$DERIVED_EXTRACTED/scripts/panic/telnet"; do
+	[ -f "$automatic_path" ] || continue
+	if grep -Fq '/sbin/rmx1901-restart-recovery' "$automatic_path"; then
+		fail "recovery helper is invoked automatically: ${automatic_path#$DERIVED_EXTRACTED/}"
+	fi
+done
 for stage in DEV_MOVE_BEGIN DEV_MOVE_DONE CONSOLE_OPEN_OK CONSOLE_OPEN_FAILED \
   RUN_MOVE_BEGIN RUN_MOVE_DONE HANDOFF_MARKER_VISIBLE HANDOFF_MARKER_MISSING RUN_INIT_EXEC; do
   grep -Fq "$stage" "$DERIVED_EXTRACTED/init" || fail "base init event is missing: $stage"

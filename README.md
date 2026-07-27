@@ -45,6 +45,13 @@ starts an independently chrooted, public-key-only SSH server after `/dev` and
 logs live only in `/run`; it does not create a userdata marker. Diagnostic
 setup failure is logged but never aborts the normal boot path.
 
+`/sbin/rmx1901-restart-recovery` is also packaged as a static AArch64 helper
+for the **host evidence controller** to request `RESTART2("recovery")` after a
+fully recorded panic attempt. It is deliberately not called from normal init,
+the panic handler, panic telnet, or a kernel command-line switch. It writes no
+Android partition; using it for unattended recovery remains disabled until a
+separate, controlled device test verifies the expected Recovery ADB identity.
+
 The M1 source event chronology is deliberately causal:
 `CMDLINE_PARSED`, `ROOT_DEVICE_RESOLVED`, `USERDATA_PROBED`, then
 `ROOTFS_MOUNTED`. Rootfs selection depends on completing the safe userdata
@@ -58,6 +65,7 @@ Run the behavior fixtures with:
 /bin/sh tests/test-safe-userdata.sh
 /bin/sh tests/test-handoff-semantics.sh
 /bin/sh tests/test-debug-rndis.sh
+/bin/sh tests/test-rmx1901-restart-recovery.sh
 /bin/sh tests/test-spec-order-gate.sh
 /bin/sh tests/test-derive-initrd.sh
 ```
