@@ -15,7 +15,7 @@ fixture_start() {
 	export BLKID_OUTPUT=ext4 IS_BLOCK=1 HAS_PAYLOAD=1
 	export CANONICAL_PATH=/dev/sda13 MAJOR_MINOR=8:d BLOCK_SIZE=53862150144
 	unset CANONICAL_PATH_AFTER_FIRST MAJOR_MINOR_AFTER_FIRST BLOCK_SIZE_AFTER_FIRST DMESG_OUTPUT
-	export FAIL_RO=0 FAIL_RW=0 FAIL_UMOUNT=0 FAIL_SYSTEM_MOUNT=0
+	export FAIL_RO=0 FAIL_RW=0 FAIL_UMOUNT=0 FAIL_SYSTEM_MOUNT=0 FAIL_DMESG=0
 	# Poison the old environment injection interface. Production code must use
 	# fixed wrapper functions, which this test shell overrides below.
 	export HALIUM_BLKID=/bin/false HALIUM_MOUNT=/bin/false HALIUM_UMOUNT=/bin/false

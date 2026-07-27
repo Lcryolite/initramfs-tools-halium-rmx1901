@@ -71,6 +71,9 @@ case "$name" in
 		;;
 	dmesg)
 		record "$@"
+		if [ "${FAIL_DMESG-0}" = 1 ]; then
+			exit 1
+		fi
 		printf '%s\n' "${DMESG_OUTPUT-}"
 		;;
 	log|panic)
