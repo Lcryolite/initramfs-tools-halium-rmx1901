@@ -125,8 +125,8 @@ test_f2fs_probe_exports_norecovery_proof_only_after_clean_unmount() {
 	export BLKID_OUTPUT
 	assert_success safe_mount_userdata /dev/block/by-name/userdata /tmpmnt || return 1
 	assert_eq "${rmx1901_userdata_probe_facts-}" \
-		'path=/dev/sda13 major_minor=8:d fstype=f2fs readonly=yes norecovery=yes rw=absent dmesg=readable recovery_fsync=check_only_contract unmounted=yes result=safe' \
-		'F2FS evidence must prove norecovery check-only semantics and a clean unmount'
+		'path=/dev/sda13 major_minor=8:d fstype=f2fs readonly=yes norecovery=yes rw=absent dmesg=readable recovery_fsync=absent unmounted=yes result=safe' \
+		'F2FS evidence must prove norecovery and absence of recovery writes'
 }
 
 test_failed_f2fs_unmount_never_exports_safe_probe_facts() {

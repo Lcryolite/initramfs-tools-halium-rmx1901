@@ -505,13 +505,20 @@ mountroot() {
 	fi
 	rmx1901_handoff_event ROOT_DEVICE_RESOLVED "$rmx1901_root_device_facts" || return 1
 
-	tell_kmsg "probing and mounting userdata with the RMX1901 safety policy"
-	if ! safe_mount_userdata "$path" /tmpmnt; then
-		return 1
+	if [ -n "$_syspart" ]; then
+		tell_kmsg "partition rootfs selected; leaving userdata unmounted"
+		if ! rmx1901_prepare_partition_rootfs_userdata "$path" /tmpmnt; then
+			return 1
+		fi
+		file_layout=partition
+	else
+		tell_kmsg "probing and mounting userdata with the RMX1901 safety policy"
+		if ! safe_mount_userdata "$path" /tmpmnt; then
+			return 1
+		fi
+		identify_file_layout
 	fi
 	rmx1901_handoff_event USERDATA_PROBED "$rmx1901_userdata_probe_facts" || return 1
-
-	identify_file_layout
 
 	# If both $imagefile and $_syspart are set, something is wrong. The strange
 	# output from this could be a clue in that situation.

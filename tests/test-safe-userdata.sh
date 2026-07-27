@@ -255,12 +255,22 @@ test_userdata_capacity_is_revalidated_after_probe_mount() {
   ! grep -q '^has-payload|' "$CALL_LOG"
 }
 
-test_f2fs_norecovery_check_only_log_allows_persistent_read() {
+test_partition_rootfs_uses_ephemeral_tmpfs_without_mounting_userdata() {
+  assert_success rmx1901_prepare_partition_rootfs_userdata "$DEVICE" "$MOUNTPOINT" || return 1
+  grep -Fxq "mount|-t|tmpfs|-o|mode=0755,nosuid,nodev|tmpfs|$MOUNTPOINT" "$CALL_LOG" || return 1
+  ! grep -Fq '|f2fs|' "$CALL_LOG"
+  ! grep -Fq '|/dev/sda13|' "$CALL_LOG"
+  assert_eq "${rmx1901_userdata_probe_facts-}" \
+    'path=/dev/sda13 major_minor=8:d fstype=not_mounted readonly=not_applicable norecovery=not_applicable rw=absent dmesg=not_applicable recovery_fsync=not_applicable unmounted=not_applicable result=partition_rootfs' \
+    'partition rootfs must record identity-only userdata evidence'
+}
+
+test_f2fs_recovery_log_fails_before_persistent_read() {
   BLKID_OUTPUT=f2fs; DMESG_OUTPUT='f2fs: recover fsync data on readonly fs'; export BLKID_OUTPUT DMESG_OUTPUT
-  assert_success safe_mount_userdata "$DEVICE" "$MOUNTPOINT" || return 1
+  assert_failure safe_mount_userdata "$DEVICE" "$MOUNTPOINT" || return 1
+  grep -Fxq 'panic|F2FS recovery detected during read-only userdata probe' "$CALL_LOG" || return 1
   grep -Fxq "umount|$MOUNTPOINT" "$CALL_LOG" || return 1
-  grep -Fxq "has-payload|$MOUNTPOINT" "$CALL_LOG" || return 1
-  ! grep -q '^panic|' "$CALL_LOG"
+  ! grep -q '^has-payload|' "$CALL_LOG"
 }
 
 test_f2fs_unreadable_probe_log_fails_before_persistent_read() {
@@ -308,7 +318,8 @@ for test_name in \
   test_userdata_is_revalidated_after_probe_mount \
   test_userdata_major_minor_is_revalidated_after_probe_mount \
   test_userdata_capacity_is_revalidated_after_probe_mount \
-  test_f2fs_norecovery_check_only_log_allows_persistent_read \
+  test_partition_rootfs_uses_ephemeral_tmpfs_without_mounting_userdata \
+  test_f2fs_recovery_log_fails_before_persistent_read \
   test_f2fs_unreadable_probe_log_fails_before_persistent_read \
   test_f2fs_unreadable_probe_log_and_failed_unmount_never_reads_payload \
   test_unknown_filesystem_never_mounts; do

@@ -20,12 +20,18 @@ This local fork replaces the legacy userdata path with a fail-closed policy:
   immediately before mounting, and mount the canonical device rather than the
   mutable alias;
 - never run filesystem repair, resize, or format utilities at boot;
-- attempt a read-only rescue mount and enter Halium panic if writable mounting fails.
+- for the verified partition-rootfs route, leave persistent userdata unmounted
+  and provide only an ephemeral `/tmpmnt` tmpfs to legacy Halium consumers;
+- attempt a read-only rescue mount and enter Halium panic if writable mounting fails
+  only for the legacy userdata-rootfs route.
 
-For both layouts, userdata must first identify unambiguously as ext4 or f2fs,
-mount read-only with the filesystem-specific safe options, and unmount cleanly
-before the first read-write attempt. Other, malformed, duplicate, dynamic, or
-non-canonical `systempart` values fail closed before userdata is mounted.
+For the legacy userdata-rootfs layout, userdata must first identify
+unambiguously as ext4 or f2fs, mount read-only with the filesystem-specific
+safe options, and unmount cleanly before the first read-write attempt. For the
+verified partition-rootfs layout, userdata identity is measured but it is not
+mounted: this vendor 4.9 F2FS can perform orphan recovery despite a read-only
+mount request. Other, malformed, duplicate, dynamic, or non-canonical
+`systempart` values fail closed before userdata is mounted.
 The parser disables pathname expansion while reading command-line words, and a
 failed validated-system mount enters Halium panic instead of continuing with a
 missing root filesystem.

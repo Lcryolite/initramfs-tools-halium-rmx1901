@@ -426,6 +426,28 @@ safe_mount_rmx1901_systempart() {
 	return 0
 }
 
+rmx1901_prepare_partition_rootfs_userdata() {
+	userdata_device=$1
+	userdata_mountpoint=$2
+	rmx1901_userdata_probe_facts=
+
+	# The partition-rootfs route has already bound userdata identity in the
+	# ROOT_DEVICE_RESOLVED event.  Do not mount it: this 4.9 F2FS implementation
+	# may perform orphan recovery even when asked for ro,norecovery.  A tmpfs
+	# keeps the legacy /tmpmnt consumers structurally intact without touching
+	# persistent userdata.
+	if ! check_rmx1901_userdata "$userdata_device"; then
+		halium_policy_panic "$rmx1901_userdata_validation_reason"
+		return 1
+	fi
+	if ! halium_mount -t tmpfs -o mode=0755,nosuid,nodev tmpfs "$userdata_mountpoint"; then
+		halium_policy_panic "Could not prepare ephemeral partition-rootfs userdata"
+		return 1
+	fi
+	rmx1901_userdata_probe_facts="path=$rmx1901_userdata_canonical major_minor=$rmx1901_userdata_major_minor fstype=not_mounted readonly=not_applicable norecovery=not_applicable rw=absent dmesg=not_applicable recovery_fsync=not_applicable unmounted=not_applicable result=partition_rootfs"
+	return 0
+}
+
 safe_mount_userdata() {
 	userdata_device=$1
 	userdata_mountpoint=$2
@@ -466,19 +488,24 @@ safe_mount_userdata() {
 		rmx1901_userdata_probe_norecovery=yes
 	fi
 
-	# Keep F2FS probe evidence only in initramfs shell memory.  With the mounted
-	# `ro,norecovery` contract verified above, the 4.9 F2FS driver takes its
-	# DISABLE_ROLL_FORWARD check-only path.  That path intentionally emits
-	# "recover fsync data on readonly fs" before checking; it is not evidence of
-	# a replay and must not turn a safe probe into a false panic.
+	# A read-only F2FS probe must not replay fsync data.  Keep the evidence only
+	# in initramfs shell memory: a failed collection is unsafe, and no temporary
+	# state may be written to userdata or another persistent filesystem.
 	if [ "$userdata_type" = f2fs ]; then
 		userdata_probe_log=$(halium_dmesg 2>/dev/null) || {
 			rmx1901_abort_mounted_userdata_probe "$userdata_mountpoint" \
 				"Could not collect F2FS read-only probe evidence"
 			return 1
 		}
+		case "$userdata_probe_log" in
+			*'recover fsync data'*)
+				rmx1901_abort_mounted_userdata_probe "$userdata_mountpoint" \
+					"F2FS recovery detected during read-only userdata probe"
+				return 1
+				;;
+		esac
 		rmx1901_userdata_probe_dmesg=readable
-		rmx1901_userdata_probe_recovery_fsync=check_only_contract
+		rmx1901_userdata_probe_recovery_fsync=absent
 	fi
 
 	# Re-resolve the alias and bind all immutable identity properties after the
