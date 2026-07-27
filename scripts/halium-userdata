@@ -466,24 +466,19 @@ safe_mount_userdata() {
 		rmx1901_userdata_probe_norecovery=yes
 	fi
 
-	# A read-only F2FS probe must not replay fsync data.  Keep the evidence only
-	# in initramfs shell memory: a failed collection is unsafe, and no temporary
-	# state may be written to userdata or another persistent filesystem.
+	# Keep F2FS probe evidence only in initramfs shell memory.  With the mounted
+	# `ro,norecovery` contract verified above, the 4.9 F2FS driver takes its
+	# DISABLE_ROLL_FORWARD check-only path.  That path intentionally emits
+	# "recover fsync data on readonly fs" before checking; it is not evidence of
+	# a replay and must not turn a safe probe into a false panic.
 	if [ "$userdata_type" = f2fs ]; then
 		userdata_probe_log=$(halium_dmesg 2>/dev/null) || {
 			rmx1901_abort_mounted_userdata_probe "$userdata_mountpoint" \
 				"Could not collect F2FS read-only probe evidence"
 			return 1
 		}
-		case "$userdata_probe_log" in
-			*'recover fsync data'*)
-				rmx1901_abort_mounted_userdata_probe "$userdata_mountpoint" \
-					"F2FS recovery detected during read-only userdata probe"
-				return 1
-				;;
-		esac
 		rmx1901_userdata_probe_dmesg=readable
-		rmx1901_userdata_probe_recovery_fsync=absent
+		rmx1901_userdata_probe_recovery_fsync=check_only_contract
 	fi
 
 	# Re-resolve the alias and bind all immutable identity properties after the
