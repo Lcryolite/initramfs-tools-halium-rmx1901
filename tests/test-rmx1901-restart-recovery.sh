@@ -25,6 +25,7 @@ mov	x1, #0x1969
 movk	x1, #0x2812, lsl #16
 mov	x2, #0xc3d4
 movk	x2, #0xa1b2, lsl #16
+adr	x3,
 mov	x8, #0x8e
 svc	#0x0
 mov	x0, #0x1
